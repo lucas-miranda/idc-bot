@@ -34,47 +34,23 @@ impl VoiceChannelManager {
                     println!("Something undefined happened at voice channel.")
                 },
                 VoiceMoveAction::Enter =>
-                    if let Some(new_channel_id) = new.channel_id.as_ref() {
-                        match new_channel_id.to_guild_channel(ctx).await {
-                            Ok(channel) => if let Some(mut guild_channel) = channel {
-                                self.user_entering(ctx, member, &mut guild_channel).await?;
-                            },
-                            Err(e) => {
-                                println!("Failed to get channel.\n{}", e);
-                            },
-                        }
+                    if let Some(new_channel_id) = new.channel_id.as_ref()
+                     && let Some(mut guild_channel) = new_channel_id.to_guild_channel(ctx).await
+                    {
+                        self.user_entering(ctx, member, &mut guild_channel).await?;
                     },
                 VoiceMoveAction::Leave =>
-                    if let Some(old_channel_id) = old.as_ref().and_then(|s| s.channel_id) {
-                        match old_channel_id.to_guild_channel(ctx).await {
-                            Ok(channel) => if let Some(mut guild_channel) = channel {
-                                self.user_leaving(ctx, member, &mut guild_channel).await?;
-                            },
-                            Err(e) => {
-                                println!("Failed to get channel.\n{}", e);
-                            },
-                        }
+                    if let Some(old_channel_id) = old.as_ref().and_then(|s| s.channel_id)
+                     && let Some(mut guild_channel) = old_channel_id.to_guild_channel(ctx).await
+                    {
+                        self.user_leaving(ctx, member, &mut guild_channel).await?;
                     },
                 VoiceMoveAction::Moving =>
                     if let Some(old_channel_id) = old.as_ref().and_then(|s| s.channel_id)
                      && let Some(new_channel_id) = new.channel_id.as_ref()
                     {
-                        let from = match old_channel_id.to_guild_channel(ctx).await {
-                            Ok(channel) => channel,
-                            Err(e) => {
-                                println!("Failed to get channel.\n{}", e);
-                                None
-                            },
-                        };
-
-                        let to = match new_channel_id.to_guild_channel(ctx).await {
-                            Ok(channel) => channel,
-                            Err(e) => {
-                                println!("Failed to get channel.\n{}", e);
-                                None
-                            },
-                        };
-
+                        let from = old_channel_id.to_guild_channel(ctx).await;
+                        let to = new_channel_id.to_guild_channel(ctx).await;
                         self.user_moving(ctx, member, from, to).await?;
                     },
             }
@@ -96,9 +72,7 @@ impl VoiceChannelManager {
     ) -> Result<(), crate::Error> {
         if member.is_staff(ctx, guild_channel) && self.is_public_voice_channel(guild_channel) {
             println!("{} entered voice channel {}", member.display_name(), guild_channel.name);
-            println!("  changing channel to be visible...");
-            guild_channel.make_visible(ctx).await?;
-            println!("  done!");
+            self.staff_entering_public_voice_channel(ctx, member, guild_channel).await?;
         }
 
         Ok(())
@@ -113,30 +87,7 @@ impl VoiceChannelManager {
     ) -> Result<(), crate::Error> {
         if member.is_staff(ctx, guild_channel) && self.is_public_voice_channel(guild_channel) {
             println!("{} left voice channel {}", member.display_name(), guild_channel.name);
-
-            let is_staff_connected = match guild_channel.members(&ctx.cache) {
-                Ok(members) => {
-                    let staff_member = members.iter()
-                                              .find(|channel_member| channel_member.is_staff(ctx, guild_channel));
-
-                    if let Some(m) = staff_member {
-                        println!("  Staff member {} is still connected to channel", m.display_name());
-                        true
-                    } else {
-                        false
-                    }
-                },
-                Err(e) => {
-                    println!("Failed to get channel members\n{}", e);
-                    false
-                }
-            };
-
-            if !is_staff_connected {
-                println!("  changing channel to be invisible...");
-                guild_channel.make_invisible(ctx).await?;
-                println!("  done!");
-            }
+            self.staff_leaving_public_voice_channel(ctx, member, guild_channel).await?;
         }
 
         Ok(())
@@ -157,9 +108,7 @@ impl VoiceChannelManager {
          && self.is_public_voice_channel(&from)
         {
             println!("  from voice channel {}", from.name);
-            println!("  changing channel to be invisible...");
-            from.make_invisible(ctx).await?;
-            println!("  done!");
+            self.staff_leaving_public_voice_channel(ctx, member, &mut from).await?;
         }
 
         if let Some(mut to) = to_guild_channel
@@ -167,9 +116,46 @@ impl VoiceChannelManager {
          && self.is_public_voice_channel(&to)
         {
             println!("  to voice channel {}", to.name);
-            println!("  changing channel to be visible...");
-            to.make_visible(ctx).await?;
-            println!("  done!");
+            self.staff_entering_public_voice_channel(ctx, member, &mut to).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn staff_entering_public_voice_channel(
+        &self,
+        ctx: &serenity::Context,
+        _member: &serenity::Member,
+        guild_channel: &mut serenity::GuildChannel
+    ) -> Result<(), crate::Error> {
+        println!("  changing channel to be visible...");
+        guild_channel.make_visible(ctx).await?;
+        println!("  done!");
+
+        Ok(())
+    }
+
+    async fn staff_leaving_public_voice_channel(
+        &self,
+        ctx: &serenity::Context,
+        _member: &serenity::Member,
+        guild_channel: &mut serenity::GuildChannel
+    ) -> Result<(), crate::Error> {
+        match guild_channel.get_connected_staff_member(ctx) {
+            Ok(staff_member) =>
+                match staff_member {
+                    Some(m) => {
+                        println!("  Staff member {} is still connected to channel", m.display_name());
+                    },
+                    None => {
+                        println!("  changing channel to be invisible...");
+                        guild_channel.make_invisible(ctx).await?;
+                        println!("  done!");
+                    },
+                },
+            Err(e) => {
+                println!("Failed to get channel members\n{}", e);
+            }
         }
 
         Ok(())
