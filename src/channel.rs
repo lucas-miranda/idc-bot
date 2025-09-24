@@ -9,11 +9,19 @@ pub trait ChannelExtras {
 
 impl ChannelExtras for serenity::GuildChannel {
     async fn make_visible(&mut self, ctx: &serenity::Context) -> Result<(), crate::Error> {
-        let make_visible_permissions = vec![serenity::PermissionOverwrite {
-            allow: serenity::Permissions::VIEW_CHANNEL | serenity::Permissions::CONNECT,
-            deny: serenity::Permissions::empty(),
-            kind: serenity::PermissionOverwriteType::Role(self.guild_id.everyone_role()),
-        }];
+        let everyone_role = serenity::PermissionOverwriteType::Role(self.guild_id.everyone_role());
+
+        // get permissions which isn't assigned to everyone role
+        // and chain it with the new everyone permission
+        let make_visible_permissions = self.permission_overwrites
+            .iter()
+            .filter(|p| p.kind != everyone_role)
+            .cloned()
+            .chain(vec![serenity::PermissionOverwrite {
+                allow: serenity::Permissions::VIEW_CHANNEL | serenity::Permissions::CONNECT,
+                deny: serenity::Permissions::empty(),
+                kind: everyone_role,
+            }]);
 
         let edit = serenity::EditChannel::new().permissions(make_visible_permissions);
         self.edit(ctx.http(), edit).await?;
@@ -22,11 +30,19 @@ impl ChannelExtras for serenity::GuildChannel {
     }
 
     async fn make_invisible(&mut self, ctx: &serenity::Context) -> Result<(), crate::Error> {
-        let make_invisible_permissions = vec![serenity::PermissionOverwrite {
-            allow: serenity::Permissions::empty(),
-            deny: serenity::Permissions::VIEW_CHANNEL | serenity::Permissions::CONNECT,
-            kind: serenity::PermissionOverwriteType::Role(self.guild_id.everyone_role()),
-        }];
+        let everyone_role = serenity::PermissionOverwriteType::Role(self.guild_id.everyone_role());
+
+        // get permissions which isn't assigned to everyone role
+        // and chain it with the new everyone permission
+        let make_invisible_permissions = self.permission_overwrites
+            .iter()
+            .filter(|p| p.kind != everyone_role)
+            .cloned()
+            .chain(vec![serenity::PermissionOverwrite {
+                allow: serenity::Permissions::empty(),
+                deny: serenity::Permissions::VIEW_CHANNEL | serenity::Permissions::CONNECT,
+                kind: everyone_role,
+            }]);
 
         let edit = serenity::EditChannel::new().permissions(make_invisible_permissions);
         self.edit(ctx.http(), edit).await?;
