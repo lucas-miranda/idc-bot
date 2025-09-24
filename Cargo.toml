@@ -1,0 +1,9 @@
+[package]
+name = "idc-bot"
+authors = ["Lucas A. Miranda <miranda.a.lucas@gmail.com>"]
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+poise = { version = "0.6.1", features = ["cache"] }
+tokio = { version = "1.25.1", features = ["macros", "rt-multi-thread"] }
