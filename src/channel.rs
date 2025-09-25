@@ -11,17 +11,49 @@ impl ChannelExtras for serenity::GuildChannel {
     async fn make_visible(&mut self, ctx: &serenity::Context) -> Result<(), crate::Error> {
         let everyone_role = serenity::PermissionOverwriteType::Role(self.guild_id.everyone_role());
 
-        // get permissions which isn't assigned to everyone role
-        // and chain it with the new everyone permission
-        let make_visible_permissions = self.permission_overwrites
-            .iter()
-            .filter(|p| p.kind != everyone_role)
-            .cloned()
-            .chain(vec![serenity::PermissionOverwrite {
-                allow: serenity::Permissions::VIEW_CHANNEL | serenity::Permissions::CONNECT,
-                deny: serenity::Permissions::empty(),
-                kind: everyone_role,
-            }]);
+        let mut replace_permissions = vec![serenity::PermissionOverwrite {
+            allow: serenity::Permissions::VIEW_CHANNEL | serenity::Permissions::CONNECT,
+            deny: serenity::Permissions::empty(),
+            kind: everyone_role,
+        }];
+
+        // at first try to find replace_permissions at permissions list and update them
+        // consuming the entries at replace_permissions
+        let mut make_visible_permissions: Vec<serenity::PermissionOverwrite>
+            = self.permission_overwrites
+                  .iter()
+                  .cloned()
+                  .map(|mut p| {
+                      let i = replace_permissions.iter()
+                                                 .enumerate()
+                                                 .find_map(|(n, extra_p)| {
+                                                     (extra_p.kind == p.kind).then_some(n)
+                                                 });
+
+                      if let Some(pos) = i {
+                          // modify permission overwrite
+                          let extra_p = replace_permissions.remove(pos);
+
+                          p.deny &= !extra_p.allow;
+                      }
+
+                      p
+                  })
+                  .collect();
+
+        // if replace_permissions wasn't completed consumed, append it to the permissions
+        if !replace_permissions.is_empty() {
+            make_visible_permissions
+                .extend(
+                    replace_permissions.into_iter()
+                                       .map(|mut extra_p| {
+                                           // we shouldn't allow permissions directly
+                                           // it'll break everything
+                                           extra_p.allow = serenity::Permissions::empty();
+                                           extra_p
+                                       })
+                )
+        }
 
         let edit = serenity::EditChannel::new().permissions(make_visible_permissions);
         self.edit(ctx.http(), edit).await?;
@@ -32,17 +64,39 @@ impl ChannelExtras for serenity::GuildChannel {
     async fn make_invisible(&mut self, ctx: &serenity::Context) -> Result<(), crate::Error> {
         let everyone_role = serenity::PermissionOverwriteType::Role(self.guild_id.everyone_role());
 
-        // get permissions which isn't assigned to everyone role
-        // and chain it with the new everyone permission
-        let make_invisible_permissions = self.permission_overwrites
-            .iter()
-            .filter(|p| p.kind != everyone_role)
-            .cloned()
-            .chain(vec![serenity::PermissionOverwrite {
-                allow: serenity::Permissions::empty(),
-                deny: serenity::Permissions::VIEW_CHANNEL | serenity::Permissions::CONNECT,
-                kind: everyone_role,
-            }]);
+        let mut replace_permissions = vec![serenity::PermissionOverwrite {
+            allow: serenity::Permissions::empty(),
+            deny: serenity::Permissions::VIEW_CHANNEL | serenity::Permissions::CONNECT,
+            kind: everyone_role,
+        }];
+
+        // at first try to find replace_permissions at permissions list and update them
+        // consuming the entries at replace_permissions
+        let mut make_invisible_permissions: Vec<serenity::PermissionOverwrite>
+            = self.permission_overwrites
+                  .iter()
+                  .cloned()
+                  .map(|mut p| {
+                      let i = replace_permissions.iter()
+                                                 .enumerate()
+                                                 .find_map(|(n, extra_p)| (extra_p.kind == p.kind).then_some(n));
+
+                      if let Some(pos) = i {
+                          // modify permission overwrite
+                          let extra_p = replace_permissions.remove(pos);
+
+                          p.deny |= extra_p.deny;
+                          p.allow &= !extra_p.deny;
+                      }
+
+                      p
+                  })
+                  .collect();
+
+        // if replace_permissions wasn't completed consumed, append it to the permissions
+        if !replace_permissions.is_empty() {
+            make_invisible_permissions.extend(replace_permissions)
+        }
 
         let edit = serenity::EditChannel::new().permissions(make_invisible_permissions);
         self.edit(ctx.http(), edit).await?;
