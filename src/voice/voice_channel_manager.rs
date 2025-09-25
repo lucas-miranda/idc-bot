@@ -31,7 +31,9 @@ impl VoiceChannelManager {
             // handle actions
             match action {
                 VoiceMoveAction::Undefined => {
-                    println!("Something undefined happened at voice channel.")
+                    println!("Something undefined happened at voice channel.");
+                    println!("-> old: {:?}", old);
+                    println!("-> new: {:?}", new);
                 },
                 VoiceMoveAction::Enter =>
                     if let Some(new_channel_id) = new.channel_id.as_ref()
