@@ -4,7 +4,7 @@ use crate::permissions::PermissionsExtras;
 pub trait ChannelExtras {
     fn make_visible(&mut self, ctx: &serenity::Context) -> impl Future<Output = Result<(), crate::Error>>;
     fn make_invisible(&mut self, ctx: &serenity::Context) -> impl Future<Output = Result<(), crate::Error>>;
-    fn get_connected_staff_member(&self, ctx: &serenity::Context) -> serenity::Result<Option<serenity::Member>>;
+    fn get_connected_staff_member(&self, ctx: &serenity::Context) -> Option<serenity::Member>;
 }
 
 impl ChannelExtras for serenity::GuildChannel {
@@ -50,11 +50,14 @@ impl ChannelExtras for serenity::GuildChannel {
         Ok(())
     }
 
-    fn get_connected_staff_member(&self, ctx: &serenity::Context) -> serenity::Result<Option<serenity::Member>> {
-        self.members(&ctx.cache)
-            .map(|members| {
-                members.into_iter().find(|channel_member| channel_member.is_staff(ctx, self))
-            })
+    fn get_connected_staff_member(&self, ctx: &serenity::Context) -> Option<serenity::Member> {
+        match self.members(&ctx.cache) {
+            Ok(members) => members.into_iter().find(|channel_member| channel_member.is_staff(ctx, self)),
+            Err(e) => {
+                println!("Failed to get channel members\n{}", e);
+                None
+            }
+        }
     }
 }
 

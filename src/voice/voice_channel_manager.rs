@@ -144,20 +144,14 @@ impl VoiceChannelManager {
         guild_channel: &mut serenity::GuildChannel
     ) -> Result<(), crate::Error> {
         match guild_channel.get_connected_staff_member(ctx) {
-            Ok(staff_member) =>
-                match staff_member {
-                    Some(m) => {
-                        println!("  Staff member {} is still connected to channel", m.display_name());
-                    },
-                    None => {
-                        println!("  changing channel to be invisible...");
-                        guild_channel.make_invisible(ctx).await?;
-                        println!("  done!");
-                    },
-                },
-            Err(e) => {
-                println!("Failed to get channel members\n{}", e);
-            }
+            Some(m) => {
+                println!("  Staff member {} is still connected to channel", m.display_name());
+            },
+            None => {
+                println!("  changing channel to be invisible...");
+                guild_channel.make_invisible(ctx).await?;
+                println!("  done!");
+            },
         }
 
         Ok(())
