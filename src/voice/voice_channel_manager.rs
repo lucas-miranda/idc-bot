@@ -31,9 +31,11 @@ impl VoiceChannelManager {
             // handle actions
             match action {
                 VoiceMoveAction::Undefined => {
+                    /*
                     println!("Something undefined happened at voice channel.");
                     println!("-> old: {:?}", old);
                     println!("-> new: {:?}", new);
+                    */
                 },
                 VoiceMoveAction::Enter =>
                     if let Some(new_channel_id) = new.channel_id.as_ref()
@@ -150,7 +152,21 @@ impl VoiceChannelManager {
             None => {
                 println!("  changing channel to be invisible...");
                 guild_channel.make_invisible(ctx).await?;
-                println!("  done!");
+                println!("  kick remaining connected members...");
+
+                match guild_channel.members(&ctx.cache) {
+                    Ok(members) => {
+                        // disconnect everyone
+
+                        for m in members {
+                            m.disconnect_from_voice(&ctx.http).await?;
+                        }
+                        println!("  done!");
+                    },
+                    Err(e) => {
+                        println!("Failed to get channel members\n{}", e);
+                    },
+                }
             },
         }
 

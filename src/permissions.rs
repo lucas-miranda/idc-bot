@@ -5,8 +5,10 @@ pub trait PermissionsExtras {
 }
 
 impl PermissionsExtras for serenity::Member {
+    /// Check if member is a staff member for provided channel.
     fn is_staff(&self, ctx: &serenity::Context, channel: &serenity::GuildChannel) -> bool {
-        if let Some(cache) = ctx.cache()
+        if !self.user.bot
+         && let Some(cache) = ctx.cache()
          && let Some(guild) = self.guild_id.to_guild_cached(cache)
         {
             let permissions = guild.user_permissions_in(channel, self);
