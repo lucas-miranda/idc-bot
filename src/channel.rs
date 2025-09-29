@@ -2,20 +2,41 @@ use poise::serenity_prelude::{self as serenity, CacheHttp};
 use crate::permissions::PermissionsExtras;
 
 pub trait ChannelExtras {
-    fn make_visible(&mut self, ctx: &serenity::Context) -> impl Future<Output = Result<(), crate::Error>>;
+    fn make_visible(&mut self, ctx: &serenity::Context) -> impl Future<Output = Result<bool, crate::Error>>;
     fn make_invisible(&mut self, ctx: &serenity::Context) -> impl Future<Output = Result<(), crate::Error>>;
     fn get_connected_staff_member(&self, ctx: &serenity::Context) -> Option<serenity::Member>;
 }
 
 impl ChannelExtras for serenity::GuildChannel {
-    async fn make_visible(&mut self, ctx: &serenity::Context) -> Result<(), crate::Error> {
+    async fn make_visible(&mut self, ctx: &serenity::Context) -> Result<bool, crate::Error> {
         let everyone_role = serenity::PermissionOverwriteType::Role(self.guild_id.everyone_role());
 
+        // set of permissions we'll be changing
+        // it isn't set as is, but isn't applied on top of permissions list
+        // an allow here means which a permission will not be denied anymore
+        // but it'll not be overwrited to be allowed as it'll cause permission problems
         let mut replace_permissions = vec![serenity::PermissionOverwrite {
             allow: serenity::Permissions::VIEW_CHANNEL | serenity::Permissions::CONNECT,
             deny: serenity::Permissions::empty(),
             kind: everyone_role,
         }];
+
+        let updated_permission = self.permission_overwrites
+            .iter()
+            .filter(|p| {
+                // find an entry with same kind
+                // and which is denying permissions
+                // which we'll be allowing
+                replace_permissions
+                    .iter()
+                    .any(|extra_p| extra_p.kind == p.kind && (p.deny & extra_p.allow) == extra_p.allow)
+            })
+            .count();
+
+        if updated_permission == replace_permissions.len() {
+            // there is nothing to do
+            return Ok(false);
+        }
 
         // at first try to find replace_permissions at permissions list and update them
         // consuming the entries at replace_permissions
@@ -58,7 +79,7 @@ impl ChannelExtras for serenity::GuildChannel {
         let edit = serenity::EditChannel::new().permissions(make_visible_permissions);
         self.edit(ctx.http(), edit).await?;
 
-        Ok(())
+        Ok(true)
     }
 
     async fn make_invisible(&mut self, ctx: &serenity::Context) -> Result<(), crate::Error> {

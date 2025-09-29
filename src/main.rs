@@ -82,14 +82,16 @@ async fn main() {
             Box::pin(async move {
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
 
-                let mut vc_manager: VoiceChannelManager = Default::default();
+                let vc_manager = VoiceChannelManager::new(
+                        ctx,
+                        vec![
+                            From::from(1162777377500303520),
 
-                vc_manager.ignore_voice_channels.extend::<[serenity::ChannelId; _]>([
-                    From::from(1162777377500303520),
-
-                    From::from(1287448364689916008),
-                    From::from(1072695360629260392),
-                ]);
+                            From::from(1287448364689916008),
+                            From::from(1072695360629260392),
+                        ]
+                    )
+                    .await?;
 
                 Ok(Data {
                     vc_manager,
