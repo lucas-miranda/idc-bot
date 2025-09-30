@@ -30,40 +30,11 @@ async fn event_handler<'a>(
                 println!("An error occurred:\n{}", e)
             }
         },
-        /*
-        serenity::FullEvent::Message { new_message } => {
-            if new_message.content.to_lowercase().contains("poise")
-                && new_message.author.id != ctx.cache.current_user().id
-            {
-                let old_mentions = data.mentions.fetch_add(1, Ordering::SeqCst);
-                new_message
-                    .reply(
-                        ctx,
-                        format!("Poise has been mentioned {} times", old_mentions + 1),
-                    )
-                    .await?;
-            }
-        }
-        */
         _ => {}
     }
 
     Ok(())
 }
-
-/*
-/// Displays your or another user's account creation date
-#[poise::command(slash_command, prefix_command)]
-async fn age(
-    ctx: Context<'_>,
-    #[description = "Selected user"] user: Option<serenity::User>,
-) -> Result<(), Error> {
-    let u = user.as_ref().unwrap_or_else(|| ctx.author());
-    let response = format!("{}'s account was created at {}", u.name, u.created_at());
-    ctx.say(response).await?;
-    Ok(())
-}
-*/
 
 #[tokio::main]
 async fn main() {
@@ -74,7 +45,6 @@ async fn main() {
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            //commands: vec![age()],
             event_handler: |ctx, event, framework, data| {
                 Box::pin(event_handler(ctx, event, framework, data))
             },

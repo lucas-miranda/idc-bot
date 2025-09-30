@@ -16,8 +16,7 @@ impl ChannelExtras for serenity::GuildChannel {
         // an allow here means which a permission will not be denied anymore
         // but it'll not be overwrited to be allowed as it'll cause permission problems
         let mut replace_permissions = vec![serenity::PermissionOverwrite {
-            allow: serenity::Permissions::VIEW_CHANNEL,
-            //allow: serenity::Permissions::VIEW_CHANNEL | serenity::Permissions::CONNECT,
+            allow: serenity::Permissions::VIEW_CHANNEL | serenity::Permissions::CONNECT,
             deny: serenity::Permissions::empty(),
             kind: everyone_role,
         }];
@@ -33,8 +32,6 @@ impl ChannelExtras for serenity::GuildChannel {
                     .any(|extra_p| extra_p.kind == p.kind && (p.deny & extra_p.allow).is_empty())
             })
             .count();
-
-        println!("permissions: {}, updated: {}", self.permission_overwrites.len(), updated_permission);
 
         if updated_permission == replace_permissions.len() {
             // there is nothing to do
@@ -90,8 +87,7 @@ impl ChannelExtras for serenity::GuildChannel {
 
         let mut replace_permissions = vec![serenity::PermissionOverwrite {
             allow: serenity::Permissions::empty(),
-            //deny: serenity::Permissions::VIEW_CHANNEL | serenity::Permissions::CONNECT,
-            deny: serenity::Permissions::VIEW_CHANNEL,
+            deny: serenity::Permissions::VIEW_CHANNEL | serenity::Permissions::CONNECT,
             kind: everyone_role,
         }];
 

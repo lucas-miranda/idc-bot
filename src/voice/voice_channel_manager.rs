@@ -177,13 +177,13 @@ impl VoiceChannelManager {
         if guild_channel.make_visible(ctx).await? {
             println!("  done!");
 
-            println!("  mentioning social role");
             if let Some(pride_heart_emoji) = &self.pride_heart_emoji
              && let Some(social_role) = &self.social_role
             {
+                println!("  mentioning {} role", social_role.name);
+
                 let content = serenity::MessageBuilder::new()
-                    //.mention(social_role)
-                    .push("@Teste call aberta! ")
+                    .mention(social_role)
                     .emoji(pride_heart_emoji)
                     .build();
 
