@@ -26,7 +26,9 @@ async fn event_handler<'a>(
             println!("Logged in as {}", data_about_bot.user.name);
         },
         serenity::FullEvent::VoiceStateUpdate { .. } => {
-            data.vc_manager.handle_state(ctx, event).await?;
+            if let Err(e) = data.vc_manager.handle_state(ctx, event).await {
+                println!("An error occurred:\n{}", e)
+            }
         },
         /*
         serenity::FullEvent::Message { new_message } => {

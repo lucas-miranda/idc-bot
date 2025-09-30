@@ -182,7 +182,7 @@ impl VoiceChannelManager {
              && let Some(social_role) = &self.social_role
             {
                 let content = serenity::MessageBuilder::new()
-                    .mention(social_role)
+                    //.mention(social_role)
                     .push(" call aberta! ")
                     .emoji(pride_heart_emoji)
                     .build();
