@@ -1,54 +1,58 @@
 use std::collections::HashSet;
-use poise::serenity_prelude::{self as serenity, CacheHttp};
-
-use crate::{channel::{ChannelExtras, ChannelIdExtras}, permissions::PermissionsExtras};
-
+use poise::serenity_prelude::{self as serenity};
+use crate::{channel::{ChannelExtras, ChannelIdExtras}, permissions::PermissionsExtras, voice::{Broadcaster, VoiceChannelManagerCreationError, MessageKind}};
 use super::VoiceMoveAction;
 
 pub struct VoiceChannelManager {
     pub ignore_voice_channels: HashSet<serenity::ChannelId>,
-
-    // broadcast channel
-    broadcast_channel_id: serenity::ChannelId,
-    pride_heart_emoji: Option<serenity::Emoji>,
-    social_role: Option<serenity::Role>,
+    broadcaster: Broadcaster<MessageKind>,
 }
 
 impl VoiceChannelManager {
-    pub async fn new(ctx: &serenity::Context, ignore_voice_channels: Vec<serenity::ChannelId>) -> serenity::Result<VoiceChannelManager> {
-        let guild_id = serenity::GuildId::new(1067493141038501939);
-
+    pub async fn new(
+        ctx: &serenity::Context,
+        guild_id: serenity::GuildId,
+        ignore_voice_channels: Vec<serenity::ChannelId>,
+    ) -> Result<VoiceChannelManager, VoiceChannelManagerCreationError> {
         // #chat-idc
         let broadcast_channel_id = serenity::ChannelId::new(1126997072961343660);
 
-        let manager = if let Ok(guild) = ctx.http.get_guild(guild_id).await {
-            let pride_heart_emoji = if let Some(pride_heart_emoji_identifier) = serenity::parse_emoji("<:prideHeart:1073325566196990142>") {
-               ctx.http.get_emoji(guild.id, pride_heart_emoji_identifier.id).await.ok()
-            } else {
-                None
-            };
+        // @Social
+        let social_role_id = serenity::RoleId::new(1274386535285788826);
 
-            // @Social
-            let social_role_id = serenity::RoleId::new(1274386535285788826);
-            let social_role = guild.roles.get(&social_role_id).cloned();
+        match ctx.http.get_guild(guild_id).await {
+                Ok(guild) => Ok({
 
-            VoiceChannelManager {
-                ignore_voice_channels: HashSet::from_iter(ignore_voice_channels),
-                broadcast_channel_id,
-                pride_heart_emoji,
-                social_role,
-            }
-        } else {
-            VoiceChannelManager {
-                ignore_voice_channels: HashSet::from_iter(ignore_voice_channels),
-                broadcast_channel_id,
-                pride_heart_emoji: None,
-                social_role: None,
-            }
-        };
+                    VoiceChannelManager {
+                        ignore_voice_channels: HashSet::from_iter(ignore_voice_channels),
+                        broadcaster:
+                            Broadcaster::new(
+                                ctx,
+                                broadcast_channel_id,
+                                guild,
+                                social_role_id,
+                            )
+                            .await?
+                            .register_msg(
+                                MessageKind::CallOpened,
+                                |b| {
+                                    let mut content = serenity::MessageBuilder::new();
 
+                                    content.mention(&b.social_role)
+                                           .push(" call aberta! ");
 
-        Ok(manager)
+                                    let pride_heart_emoji_id = serenity::EmojiId::new(1073325566196990142);
+                                    if let Some(pride_heart_emoji) = b.emojis.get(&pride_heart_emoji_id) {
+                                        content.emoji(pride_heart_emoji);
+                                    }
+
+                                    content.build()
+                                },
+                            ),
+                    }
+                }),
+                Err(e) => Err(e.into())
+        }
     }
 
     pub async fn handle_state(&self, ctx: &serenity::Context, event: &serenity::FullEvent) -> Result<(), crate::Error> {
@@ -176,29 +180,9 @@ impl VoiceChannelManager {
 
         if guild_channel.make_visible(ctx).await? {
             println!("  done!");
-
-            if let Some(pride_heart_emoji) = &self.pride_heart_emoji
-             && let Some(social_role) = &self.social_role
-            {
-                println!("  mentioning {} role", social_role.name);
-
-                let content = serenity::MessageBuilder::new()
-                    .mention(social_role)
-                    .emoji(pride_heart_emoji)
-                    .build();
-
-                if let Ok(channel) = ctx.http().get_channel(self.broadcast_channel_id).await
-                 && let serenity::Channel::Guild(ch) = channel
-                {
-                    // send message to broadcast channel
-                    let builder = serenity::CreateMessage::new().content(content);
-                    ch.send_message(&ctx.http, builder).await?;
-                }
-
-                println!("  done!");
-            } else {
-                println!("  failed");
-            }
+            println!("  mentioning {} role", self.broadcaster.social_role.name);
+            self.broadcaster.send_msg(ctx, &MessageKind::CallOpened).await?;
+            println!("  done!");
         } else {
             println!("  there is nothing to do!");
         }

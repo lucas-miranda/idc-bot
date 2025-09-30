@@ -56,6 +56,8 @@ async fn main() {
 
                 let vc_manager = VoiceChannelManager::new(
                         ctx,
+                        // guild id is hardcoded
+                        serenity::GuildId::new(1067493141038501939),
                         vec![
                             From::from(1162777377500303520),
 
