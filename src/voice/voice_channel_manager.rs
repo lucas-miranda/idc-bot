@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use poise::serenity_prelude::{self as serenity};
+use poise::serenity_prelude::{self as serenity, CacheHttp};
 
 use crate::{channel::{ChannelExtras, ChannelIdExtras}, permissions::PermissionsExtras};
 
@@ -183,17 +183,17 @@ impl VoiceChannelManager {
             {
                 let content = serenity::MessageBuilder::new()
                     //.mention(social_role)
-                    .push(" call aberta! ")
+                    .push("@Teste call aberta! ")
                     .emoji(pride_heart_emoji)
                     .build();
 
-                ctx.http
-                   .send_message(
-                       self.broadcast_channel_id,
-                       Vec::new(),
-                       &content
-                    )
-                   .await?;
+                if let Ok(channel) = ctx.http().get_channel(self.broadcast_channel_id).await
+                 && let serenity::Channel::Guild(ch) = channel
+                {
+                    // send message to broadcast channel
+                    let builder = serenity::CreateMessage::new().content(content);
+                    ch.send_message(&ctx.http, builder).await?;
+                }
 
                 println!("  done!");
             } else {
