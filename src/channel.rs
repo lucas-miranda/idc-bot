@@ -26,11 +26,11 @@ impl ChannelExtras for serenity::GuildChannel {
             .iter()
             .filter(|p| {
                 // find an entry with same kind
-                // and which is denying permissions
+                // and which isn't denying permissions
                 // which we'll be allowing
                 replace_permissions
                     .iter()
-                    .any(|extra_p| extra_p.kind == p.kind && (p.deny & extra_p.allow) == extra_p.allow)
+                    .any(|extra_p| extra_p.kind == p.kind && (p.deny & extra_p.allow).is_empty())
             })
             .count();
 
