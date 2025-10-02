@@ -120,7 +120,7 @@ impl VoiceChannelManager {
     ) -> Result<(), crate::Error> {
         if member.is_staff(ctx, guild_channel) && self.is_public_voice_channel(guild_channel) {
             println!("{} entered voice channel {}", member.display_name(), guild_channel.name);
-            self.staff_entering_public_voice_channel(ctx, member, guild_channel).await?;
+            self.staff_entering_public_voice_channel(ctx, member, guild_channel, None).await?;
         }
 
         Ok(())
@@ -146,17 +146,17 @@ impl VoiceChannelManager {
         &self,
         ctx: &serenity::Context,
         member: &serenity::Member,
-        from_guild_channel: Option<serenity::GuildChannel>,
+        mut from_guild_channel: Option<serenity::GuildChannel>,
         to_guild_channel: Option<serenity::GuildChannel>
     ) -> Result<(), crate::Error> {
         println!("{} moved from voice channel", member.display_name());
 
-        if let Some(mut from) = from_guild_channel
-         && member.is_staff(ctx, &from)
-         && self.is_public_voice_channel(&from)
+        if let Some(from) = &mut from_guild_channel
+         && member.is_staff(ctx, from)
+         && self.is_public_voice_channel(from)
         {
             println!("  from voice channel {}", from.name);
-            self.staff_leaving_public_voice_channel(ctx, member, &mut from).await?;
+            self.staff_leaving_public_voice_channel(ctx, member, from).await?;
         }
 
         if let Some(mut to) = to_guild_channel
@@ -164,7 +164,12 @@ impl VoiceChannelManager {
          && self.is_public_voice_channel(&to)
         {
             println!("  to voice channel {}", to.name);
-            self.staff_entering_public_voice_channel(ctx, member, &mut to).await?;
+            self.staff_entering_public_voice_channel(
+                    ctx,
+                    member,
+                    &mut to,
+                    from_guild_channel.as_mut(),
+                ).await?;
         }
 
         Ok(())
@@ -174,15 +179,19 @@ impl VoiceChannelManager {
         &self,
         ctx: &serenity::Context,
         _member: &serenity::Member,
-        guild_channel: &mut serenity::GuildChannel
+        guild_channel: &mut serenity::GuildChannel,
+        previous_guild_channel: Option<&mut serenity::GuildChannel>,
     ) -> Result<(), crate::Error> {
         println!("  changing channel to be visible...");
 
         if guild_channel.make_visible(ctx).await? {
             println!("  done!");
-            println!("  mentioning {} role", self.broadcaster.social_role.name);
-            self.broadcaster.send_msg(ctx, &MessageKind::CallOpened).await?;
-            println!("  done!");
+
+            if previous_guild_channel.is_none() {
+                println!("  mentioning {} role", self.broadcaster.social_role.name);
+                self.broadcaster.send_msg(ctx, &MessageKind::CallOpened).await?;
+                println!("  done!");
+            }
         } else {
             println!("  there is nothing to do!");
         }

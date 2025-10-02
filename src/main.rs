@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use poise::{serenity_prelude::{self as serenity}, FrameworkContext};
 
 pub mod voice;
@@ -5,6 +7,8 @@ pub mod permissions;
 pub mod channel;
 
 use voice::VoiceChannelManager;
+
+use crate::voice::BroadcasterDatabase;
 
 #[allow(unused)]
 type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -74,8 +78,13 @@ async fn main() {
         })
         .build();
 
-    let client = serenity::ClientBuilder::new(token, intents)
+    let mut client = serenity::ClientBuilder::new(token, intents)
         .framework(framework)
-        .await;
-    client.unwrap().start().await.unwrap();
+        .type_map_insert::<BroadcasterDatabase>(HashMap::default())
+        .await
+        .expect("Error creating client");
+
+    if let Err(e) = client.start().await {
+        println!("Client error: {e:?}");
+    }
 }

@@ -9,3 +9,4 @@ rust-version = "1.90.0"
 poise = { version = "0.6.1", features = ["cache"] }
 tokio = { version = "1.25.1", features = ["macros", "rt-multi-thread"] }
 thiserror = "2.0.17"
+enum-display = "0.2.1"

@@ -1,15 +1,18 @@
-use std::{collections::HashMap, hash::Hash};
-use poise::serenity_prelude::{self as serenity};
-use crate::voice::{BroadcasterCreationError, SendingMessageError};
+use std::{collections::{hash_map::Entry, HashMap}, fmt::{Debug, Display}, hash::Hash, time::Instant};
+use poise::serenity_prelude::{self as serenity, prelude::TypeMapKey};
+use crate::voice::{BroadcasterCreationError, PreparedMessage, SendingMessageError};
 
-pub struct Broadcaster<T: Eq + Hash + Clone> {
-    pub social_role: serenity::Role,
-    pub emojis: HashMap<serenity::EmojiId, serenity::Emoji>,
-    target_channel: serenity::GuildChannel,
-    msgs: HashMap<T, String>,
+pub trait MessageLabel: Eq + Hash + Clone + Debug + Display {
 }
 
-impl<T: Eq + Hash + Clone> Broadcaster<T> {
+pub struct Broadcaster<T: MessageLabel> {
+    pub social_role: serenity::Role,
+    pub emojis: HashMap<serenity::EmojiId, serenity::Emoji>,
+    pub target_channel: serenity::GuildChannel,
+    msgs: HashMap<T, PreparedMessage>,
+}
+
+impl<T: MessageLabel> Broadcaster<T> {
     pub async fn new(
         ctx: &serenity::Context,
         target_channel_id: serenity::ChannelId,
@@ -42,20 +45,31 @@ impl<T: Eq + Hash + Clone> Broadcaster<T> {
     }
 
     pub fn register_msg<F: FnOnce(&mut Broadcaster<T>) -> String>(mut self, label: T, func: F) -> Self {
-        let msg = func(&mut self);
-        self.msgs.insert(label, msg);
+        let content = func(&mut self);
+        self.msgs.insert(label, PreparedMessage::new(content));
         self
     }
 
     pub async fn send_msg(&self, ctx: &serenity::Context, label: &T) -> Result<serenity::Message, SendingMessageError<T>> {
         match self.msgs.get(label) {
             Some(msg) => {
-                let builder = serenity::CreateMessage::new().content(msg);
-                self.target_channel.send_message(&ctx.http, builder)
-                    .await
-                    .map_err(SendingMessageError::from)
+                // get message entry from broadcaster database
+                let mut data = ctx.data.write().await;
+                let db = data.get_mut::<BroadcasterDatabase>()
+                             .ok_or(SendingMessageError::FailedToAccessDatabase)?;
+                let entry = db.entry(label.to_string());
+
+                msg.send(ctx, entry, self).await
             },
             None => Err(SendingMessageError::LabelNotFound(label.clone())),
         }
     }
 }
+
+pub struct BroadcasterDatabase;
+
+impl TypeMapKey for BroadcasterDatabase {
+    type Value = HashMap<String, Instant>;
+}
+
+pub type BroadcasterDatabaseEntry<'a> = Entry<'a, String, Instant>;
