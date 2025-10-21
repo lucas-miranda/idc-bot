@@ -99,7 +99,7 @@ impl VoiceChannelManager {
                     if let Some(old_state) = old.as_ref()
                      && let Some(ref old_member) = old_state.member
                      && let Some(old_channel_id) = old_state.channel_id
-                     && let Some(ref new_member) = new.member.as_ref()
+                     && let Some(ref new_member) = new.member
                      && let Some(new_channel_id) = new.channel_id
                     {
                         let from = old_channel_id.to_guild_channel(ctx).await;
@@ -123,7 +123,7 @@ impl VoiceChannelManager {
         member: &serenity::Member,
         guild_channel: &mut serenity::GuildChannel
     ) -> Result<(), crate::Error> {
-        if member.is_staff() && self.is_public_voice_channel(guild_channel) {
+        if member.is_staff(ctx, &guild_channel) && self.is_public_voice_channel(guild_channel) {
             println!("{} entered voice channel {}", member.display_name(), guild_channel.name);
             self.staff_entering_public_voice_channel(ctx, member, guild_channel, None).await?;
         }
@@ -138,7 +138,7 @@ impl VoiceChannelManager {
         member: &serenity::Member,
         guild_channel: &mut serenity::GuildChannel
     ) -> Result<(), crate::Error> {
-        if member.is_staff() && self.is_public_voice_channel(guild_channel) {
+        if member.is_staff(ctx, &guild_channel) && self.is_public_voice_channel(guild_channel) {
             println!("{} left voice channel {}", member.display_name(), guild_channel.name);
             self.staff_leaving_public_voice_channel(ctx, member, guild_channel).await?;
         }
@@ -158,7 +158,7 @@ impl VoiceChannelManager {
         println!("{} moved from voice channel", old_member.display_name());
 
         if let Some(from) = &mut old_channel
-         && old_member.is_staff()
+         && old_member.is_staff(ctx, from)
          && self.is_public_voice_channel(from)
         {
             println!("  from voice channel {}", from.name);
@@ -166,7 +166,7 @@ impl VoiceChannelManager {
         }
 
         if let Some(mut to) = new_channel
-         && new_member.is_staff()
+         && new_member.is_staff(ctx, &to)
          && self.is_public_voice_channel(&to)
         {
             println!("  to voice channel {}", to.name);

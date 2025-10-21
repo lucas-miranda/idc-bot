@@ -128,7 +128,7 @@ impl ChannelExtras for serenity::GuildChannel {
 
     fn get_connected_staff_member(&self, ctx: &serenity::Context) -> Option<serenity::Member> {
         match self.members(&ctx.cache) {
-            Ok(members) => members.into_iter().find(|channel_member| channel_member.is_staff()),
+            Ok(members) => members.into_iter().find(|channel_member| channel_member.is_staff(ctx, self)),
             Err(e) => {
                 println!("Failed to get channel members\n{}", e);
                 None

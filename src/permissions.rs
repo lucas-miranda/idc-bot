@@ -1,14 +1,17 @@
 use poise::serenity_prelude::{self as serenity, CacheHttp};
 
 pub trait PermissionsExtras {
-    fn is_staff(&self) -> bool;
+    fn is_staff(&self, ctx: &serenity::Context, channel: &serenity::GuildChannel) -> bool;
     fn get_permissions(&self, ctx: &serenity::Context, channel: &serenity::GuildChannel) -> Option<serenity::Permissions>;
 }
 
 impl PermissionsExtras for serenity::Member {
     /// Check if member is a staff member for provided channel.
-    fn is_staff(&self) -> bool {
-        !self.user.bot && self.permissions.map(|p| p.manage_channels()).unwrap_or_default()
+    fn is_staff(&self, ctx: &serenity::Context, channel: &serenity::GuildChannel) -> bool {
+        !self.user.bot
+          && self.get_permissions(ctx, channel)
+                 .map(|p| p.manage_channels())
+                 .unwrap_or_default()
     }
 
     fn get_permissions(&self, ctx: &serenity::Context, channel: &serenity::GuildChannel) -> Option<serenity::Permissions> {
