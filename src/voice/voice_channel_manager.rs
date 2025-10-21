@@ -56,9 +56,8 @@ impl VoiceChannelManager {
     }
 
     pub async fn handle_state(&self, ctx: &serenity::Context, event: &serenity::FullEvent) -> Result<(), crate::Error> {
-        if let serenity::FullEvent::VoiceStateUpdate { old, new } = event
-         && let Some(member) = new.member.as_ref()
-        {
+         //&& let Some(member) = new.member.as_ref()
+        if let serenity::FullEvent::VoiceStateUpdate { old, new } = event {
             // verify which action is being taken by member
             let action = {
                 if old.is_none() {
@@ -82,24 +81,30 @@ impl VoiceChannelManager {
                     */
                 },
                 VoiceMoveAction::Enter =>
-                    if let Some(new_channel_id) = new.channel_id.as_ref()
+                    if let Some(member) = new.member.as_ref()
+                     && let Some(new_channel_id) = new.channel_id.as_ref()
                      && let Some(mut guild_channel) = new_channel_id.to_guild_channel(ctx).await
                     {
                         self.user_entering(ctx, member, &mut guild_channel).await?;
                     },
                 VoiceMoveAction::Leave =>
-                    if let Some(old_channel_id) = old.as_ref().and_then(|s| s.channel_id)
+                    if let Some(state) = old.as_ref()
+                     && let Some(ref member) = state.member
+                     && let Some(old_channel_id) = state.channel_id
                      && let Some(mut guild_channel) = old_channel_id.to_guild_channel(ctx).await
                     {
                         self.user_leaving(ctx, member, &mut guild_channel).await?;
                     },
                 VoiceMoveAction::Moving =>
-                    if let Some(old_channel_id) = old.as_ref().and_then(|s| s.channel_id)
-                     && let Some(new_channel_id) = new.channel_id.as_ref()
+                    if let Some(old_state) = old.as_ref()
+                     && let Some(ref old_member) = old_state.member
+                     && let Some(old_channel_id) = old_state.channel_id
+                     && let Some(ref new_member) = new.member.as_ref()
+                     && let Some(new_channel_id) = new.channel_id
                     {
                         let from = old_channel_id.to_guild_channel(ctx).await;
                         let to = new_channel_id.to_guild_channel(ctx).await;
-                        self.user_moving(ctx, member, from, to).await?;
+                        self.user_moving(ctx, (old_member, from), (new_member, to)).await?;
                     },
             }
         }
@@ -118,7 +123,7 @@ impl VoiceChannelManager {
         member: &serenity::Member,
         guild_channel: &mut serenity::GuildChannel
     ) -> Result<(), crate::Error> {
-        if member.is_staff(ctx, guild_channel) && self.is_public_voice_channel(guild_channel) {
+        if member.is_staff() && self.is_public_voice_channel(guild_channel) {
             println!("{} entered voice channel {}", member.display_name(), guild_channel.name);
             self.staff_entering_public_voice_channel(ctx, member, guild_channel, None).await?;
         }
@@ -133,7 +138,7 @@ impl VoiceChannelManager {
         member: &serenity::Member,
         guild_channel: &mut serenity::GuildChannel
     ) -> Result<(), crate::Error> {
-        if member.is_staff(ctx, guild_channel) && self.is_public_voice_channel(guild_channel) {
+        if member.is_staff() && self.is_public_voice_channel(guild_channel) {
             println!("{} left voice channel {}", member.display_name(), guild_channel.name);
             self.staff_leaving_public_voice_channel(ctx, member, guild_channel).await?;
         }
@@ -145,30 +150,31 @@ impl VoiceChannelManager {
     async fn user_moving(
         &self,
         ctx: &serenity::Context,
-        member: &serenity::Member,
-        mut from_guild_channel: Option<serenity::GuildChannel>,
-        to_guild_channel: Option<serenity::GuildChannel>
+        old: (&serenity::Member, Option<serenity::GuildChannel>),
+        new: (&serenity::Member, Option<serenity::GuildChannel>),
     ) -> Result<(), crate::Error> {
-        println!("{} moved from voice channel", member.display_name());
+        let (old_member, mut old_channel) = old;
+        let (new_member, new_channel) = new;
+        println!("{} moved from voice channel", old_member.display_name());
 
-        if let Some(from) = &mut from_guild_channel
-         && member.is_staff(ctx, from)
+        if let Some(from) = &mut old_channel
+         && old_member.is_staff()
          && self.is_public_voice_channel(from)
         {
             println!("  from voice channel {}", from.name);
-            self.staff_leaving_public_voice_channel(ctx, member, from).await?;
+            self.staff_leaving_public_voice_channel(ctx, old_member, from).await?;
         }
 
-        if let Some(mut to) = to_guild_channel
-         && member.is_staff(ctx, &to)
+        if let Some(mut to) = new_channel
+         && new_member.is_staff()
          && self.is_public_voice_channel(&to)
         {
             println!("  to voice channel {}", to.name);
             self.staff_entering_public_voice_channel(
                     ctx,
-                    member,
+                    new_member,
                     &mut to,
-                    from_guild_channel.as_mut(),
+                    old_channel.as_mut(),
                 ).await?;
         }
 
@@ -186,8 +192,27 @@ impl VoiceChannelManager {
 
         if guild_channel.make_visible(ctx).await? {
             println!("  done!");
+            let everyone_role_kind = serenity::PermissionOverwriteType::Role(guild_channel.guild_id.everyone_role());
 
-            if previous_guild_channel.is_none() {
+            let everyone_can_speak_on_channel
+                = guild_channel
+                    .get_permissions_overwrite(everyone_role_kind)
+                    .map(|p| !p.deny.speak())
+                    .unwrap_or(true);
+
+            // if previous_guild_channel is none, it'll be false
+            let everyone_can_speak_on_prev_channel
+                = previous_guild_channel
+                    .map(|ch| ch.get_permissions_overwrite(everyone_role_kind)
+                                .map(|p| !p.deny.speak())
+                                .unwrap_or(true))
+                    .unwrap_or_default();
+
+            if everyone_can_speak_on_prev_channel {
+                println!("  not mentioning {} role, moving from another social channel", self.broadcaster.social_role.name);
+            } else if !everyone_can_speak_on_channel {
+                println!("  not mentioning {} role, isn't a social channel", self.broadcaster.social_role.name);
+            } else {
                 println!("  mentioning {} role", self.broadcaster.social_role.name);
                 self.broadcaster.send_msg(ctx, &MessageKind::CallOpened).await?;
                 println!("  done!");

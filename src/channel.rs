@@ -5,6 +5,7 @@ pub trait ChannelExtras {
     fn make_visible(&mut self, ctx: &serenity::Context) -> impl Future<Output = Result<bool, crate::Error>>;
     fn make_invisible(&mut self, ctx: &serenity::Context) -> impl Future<Output = Result<(), crate::Error>>;
     fn get_connected_staff_member(&self, ctx: &serenity::Context) -> Option<serenity::Member>;
+    fn get_permissions_overwrite(&self, kind: serenity::PermissionOverwriteType) -> Option<&serenity::PermissionOverwrite>;
 }
 
 impl ChannelExtras for serenity::GuildChannel {
@@ -127,12 +128,22 @@ impl ChannelExtras for serenity::GuildChannel {
 
     fn get_connected_staff_member(&self, ctx: &serenity::Context) -> Option<serenity::Member> {
         match self.members(&ctx.cache) {
-            Ok(members) => members.into_iter().find(|channel_member| channel_member.is_staff(ctx, self)),
+            Ok(members) => members.into_iter().find(|channel_member| channel_member.is_staff()),
             Err(e) => {
                 println!("Failed to get channel members\n{}", e);
                 None
             }
         }
+    }
+
+    fn get_permissions_overwrite(&
+        self,
+        kind: serenity::PermissionOverwriteType,
+    ) -> Option<&serenity::PermissionOverwrite>
+    {
+        self.permission_overwrites
+            .iter()
+            .find(|p| p.kind == kind)
     }
 }
 
