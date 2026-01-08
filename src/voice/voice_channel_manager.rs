@@ -1,11 +1,12 @@
-use std::collections::HashSet;
-use poise::serenity_prelude::{self as serenity};
-use crate::{channel::{ChannelExtras, ChannelIdExtras}, permissions::PermissionsExtras, voice::{Broadcaster, VoiceChannelManagerCreationError, MessageKind}};
+use std::collections::{HashMap, HashSet};
+use poise::serenity_prelude::{self as serenity, PartialGuild};
+use crate::{channel::{ChannelExtras, ChannelIdExtras}, permissions::PermissionsExtras, voice::{err::MessageError, Broadcaster, CallKind, MessageKind, VoiceChannelManagerCreationError}};
 use super::VoiceMoveAction;
 
 pub struct VoiceChannelManager {
     pub ignore_voice_channels: HashSet<serenity::ChannelId>,
     broadcaster: Broadcaster<MessageKind>,
+    message_by_channel: HashMap<serenity::ChannelId, MessageKind>
 }
 
 impl VoiceChannelManager {
@@ -17,37 +18,88 @@ impl VoiceChannelManager {
         // #chat-idc
         let broadcast_channel_id = serenity::ChannelId::new(1126997072961343660);
 
-        // @Social
+        // voice channels
+        let entries = [
+            (
+                MessageKind::CallOpened(CallKind::Social),
+                [
+                    serenity::ChannelId::new(1160706169963294740)
+                ]
+            ),
+            (
+                MessageKind::CallOpened(CallKind::Games),
+                [
+                    serenity::ChannelId::new(1374542425116246066)
+                ]
+            ),
+            (
+                MessageKind::CallOpened(CallKind::Movies),
+                [
+                    serenity::ChannelId::new(1419472150644916244)
+                ]
+            )
+        ];
+
+        let mut message_by_channel = HashMap::new();
+        for entry in entries {
+            for id in &entry.1 {
+                message_by_channel.insert(*id, entry.0.clone());
+            }
+        }
+
+        // roles ids
         let social_role_id = serenity::RoleId::new(1274386535285788826);
+        let games_role_id = serenity::RoleId::new(1287419235886436375);
+        let movies_role_id = serenity::RoleId::new(1287419731447648396);
 
         match ctx.http.get_guild(guild_id).await {
                 Ok(guild) => Ok({
-
                     VoiceChannelManager {
                         ignore_voice_channels: HashSet::from_iter(ignore_voice_channels),
+                        message_by_channel,
                         broadcaster:
                             Broadcaster::new(
                                 ctx,
                                 broadcast_channel_id,
-                                guild,
+                                guild.clone(),
                                 social_role_id,
                             )
                             .await?
                             .register_msg(
-                                MessageKind::CallOpened,
+                                MessageKind::CallOpened(CallKind::Social),
                                 |b| {
-                                    let mut content = serenity::MessageBuilder::new();
-
-                                    content.mention(&b.social_role)
-                                           .push(" call aberta! ");
-
-                                    let pride_heart_emoji_id = serenity::EmojiId::new(1073325566196990142);
-                                    if let Some(pride_heart_emoji) = b.emojis.get(&pride_heart_emoji_id) {
-                                        content.emoji(pride_heart_emoji);
+                                    match Self::default_msg(&guild, b, &social_role_id) {
+                                        Ok(msg) => msg,
+                                        Err(e) => {
+                                            println!("Failed to send message: {}", e);
+                                            String::new()
+                                        }
                                     }
-
-                                    content.build()
-                                },
+                                }
+                            )
+                            .register_msg(
+                                MessageKind::CallOpened(CallKind::Games),
+                                |b| {
+                                    match Self::default_msg(&guild, b, &games_role_id) {
+                                        Ok(msg) => msg,
+                                        Err(e) => {
+                                            println!("Failed to send message: {}", e);
+                                            String::new()
+                                        }
+                                    }
+                                }
+                            )
+                            .register_msg(
+                                MessageKind::CallOpened(CallKind::Movies),
+                                |b| {
+                                    match Self::default_msg(&guild, b, &movies_role_id) {
+                                        Ok(msg) => msg,
+                                        Err(e) => {
+                                            println!("Failed to send message: {}", e);
+                                            String::new()
+                                        }
+                                    }
+                                }
                             ),
                     }
                 }),
@@ -123,7 +175,7 @@ impl VoiceChannelManager {
         member: &serenity::Member,
         guild_channel: &mut serenity::GuildChannel
     ) -> Result<(), crate::Error> {
-        if member.is_staff(ctx, &guild_channel) && self.is_public_voice_channel(guild_channel) {
+        if member.is_staff(ctx, guild_channel) && self.is_public_voice_channel(guild_channel) {
             println!("{} entered voice channel {}", member.display_name(), guild_channel.name);
             self.staff_entering_public_voice_channel(ctx, member, guild_channel, None).await?;
         }
@@ -138,7 +190,7 @@ impl VoiceChannelManager {
         member: &serenity::Member,
         guild_channel: &mut serenity::GuildChannel
     ) -> Result<(), crate::Error> {
-        if member.is_staff(ctx, &guild_channel) && self.is_public_voice_channel(guild_channel) {
+        if member.is_staff(ctx, guild_channel) && self.is_public_voice_channel(guild_channel) {
             println!("{} left voice channel {}", member.display_name(), guild_channel.name);
             self.staff_leaving_public_voice_channel(ctx, member, guild_channel).await?;
         }
@@ -214,8 +266,16 @@ impl VoiceChannelManager {
                 println!("  not mentioning {} role, isn't a social channel", self.broadcaster.social_role.name);
             } else {
                 println!("  mentioning {} role", self.broadcaster.social_role.name);
-                self.broadcaster.send_msg(ctx, &MessageKind::CallOpened).await?;
-                println!("  done!");
+
+                match self.message_by_channel.get(&guild_channel.id) {
+                    Some(msg_kind) => {
+                        println!("  done!");
+                        self.broadcaster.send_msg(ctx, msg_kind).await?;
+                    },
+                    None => {
+                        println!("  failed to find channel...");
+                    },
+                }
             }
         } else {
             println!("  there is nothing to do!");
@@ -256,5 +316,27 @@ impl VoiceChannelManager {
         }
 
         Ok(())
+    }
+
+    fn default_msg(guild: &PartialGuild, b: &mut Broadcaster<MessageKind>, role_id: &serenity::RoleId) -> Result<String, MessageError> {
+        let mut content = serenity::MessageBuilder::new();
+
+        let role = match guild.roles.get(role_id) {
+            Some(r) => r.clone(),
+            None => {
+                content.build();
+                return Err(MessageError::RoleNotFound(*role_id))
+            }
+        };
+
+        content.mention(&role)
+               .push(" call aberta! ");
+
+        let pride_heart_emoji_id = serenity::EmojiId::new(1073325566196990142);
+        if let Some(pride_heart_emoji) = b.emojis.get(&pride_heart_emoji_id) {
+            content.emoji(pride_heart_emoji);
+        }
+
+        Ok(content.build())
     }
 }

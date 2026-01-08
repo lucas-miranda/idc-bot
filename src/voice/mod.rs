@@ -8,6 +8,8 @@ pub use voice_channel_manager::VoiceChannelManager;
 mod broadcaster;
 pub use broadcaster::*;
 
+pub mod err;
+
 mod prepared_message;
 pub use prepared_message::PreparedMessage;
 
@@ -21,8 +23,15 @@ mod voice_channel_manager_creation_error;
 pub use voice_channel_manager_creation_error::VoiceChannelManagerCreationError;
 
 #[derive(Hash, PartialEq, Eq, Clone, Debug, EnumDisplay)]
+pub enum CallKind {
+    Social,
+    Games,
+    Movies,
+}
+
+#[derive(Hash, PartialEq, Eq, Clone, Debug, EnumDisplay)]
 pub enum MessageKind {
-    CallOpened,
+    CallOpened(CallKind),
 }
 
 impl MessageLabel for MessageKind {
