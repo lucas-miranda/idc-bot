@@ -27,6 +27,11 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
         }
     }
 
+    /// The configuration currently backing this service.
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
     /// Handle a single voice state update.
     pub async fn handle_transition(
         &self,

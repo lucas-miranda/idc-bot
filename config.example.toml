@@ -1,0 +1,35 @@
+# Example configuration for idc-bot.
+#
+# Copy this file to your Railway volume, e.g. /data/config.toml, and replace
+# the placeholder ids. Set CONFIG_PATH if you mount the volume elsewhere.
+#
+# All ids are Discord snowflakes. Replace every 0 below.
+
+guild_id = 0
+broadcast_channel_id = 0
+cooldown_secs = 3600
+
+# Voice channels the bot should leave alone.
+ignored_voice_channels = []
+
+# Extra roles allowed to run /reload.
+# Bot owners and members with MANAGE_GUILD can always run it.
+reload_roles = []
+
+[[call_kinds]]
+kind = "social" # social | games | movies
+voice_channels = []
+role_id = 0
+message = " call aberta! "
+
+[[call_kinds]]
+kind = "games"
+voice_channels = []
+role_id = 0
+message = " call aberta! "
+
+[[call_kinds]]
+kind = "movies"
+voice_channels = []
+role_id = 0
+message = " call aberta! "

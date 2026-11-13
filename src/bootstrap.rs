@@ -1,20 +1,17 @@
 use std::sync::Arc;
 
 use poise::serenity_prelude as serenity;
+use tokio::sync::RwLock;
 use tracing::{error, info};
 
-use crate::app::VoiceService;
-use crate::config::Config;
-use crate::discord::{DiscordNotifier, DiscordVoiceChannels, InMemoryCooldownStore};
+use crate::commands;
+use crate::config::{self, Config};
+use crate::discord::InMemoryCooldownStore;
 use crate::error::{Error, StartupError};
 use crate::event_dispatch;
 use crate::ports::CooldownStore;
+use crate::state::{AppState, build_voice_service};
 use crate::telemetry;
-
-/// Composition root: the concrete services the event handler receives.
-pub struct AppState {
-    pub voice: VoiceService<DiscordVoiceChannels, DiscordNotifier>,
-}
 
 pub async fn run() -> Result<(), Error> {
     let token = std::env::var("DISCORD_TOKEN").map_err(|_| StartupError::MissingToken)?;
@@ -25,6 +22,7 @@ pub async fn run() -> Result<(), Error> {
 
     let framework: poise::Framework<AppState, Error> = poise::Framework::builder()
         .options(poise::FrameworkOptions {
+            commands: vec![commands::reload()],
             event_handler: |framework, event| {
                 Box::pin(event_dispatch::handle_event(framework, event))
             },
@@ -34,13 +32,17 @@ pub async fn run() -> Result<(), Error> {
             Box::pin(async move {
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
 
-                let config = Arc::new(Config::default());
-                let channels = DiscordVoiceChannels::new(ctx.clone());
+                let config_path = config::path_from_env();
+                let config = Arc::new(Config::load(&config_path).await?);
+                info!(path = %config_path.display(), "loaded configuration");
+
                 let cooldowns: Arc<dyn CooldownStore> = Arc::new(InMemoryCooldownStore::default());
-                let notifier = DiscordNotifier::new(ctx.clone(), &config, cooldowns).await?;
+                let voice = build_voice_service(ctx, config, cooldowns.clone()).await?;
 
                 Ok(AppState {
-                    voice: VoiceService::new(config, channels, notifier),
+                    voice: RwLock::new(Arc::new(voice)),
+                    config_path,
+                    cooldowns,
                 })
             })
         })

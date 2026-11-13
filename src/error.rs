@@ -14,6 +14,8 @@ pub enum Error {
     #[error(transparent)]
     Discord(Box<serenity::Error>),
     #[error(transparent)]
+    Config(#[from] ConfigError),
+    #[error(transparent)]
     Notifier(#[from] NotifierError),
     #[error(transparent)]
     Startup(#[from] StartupError),
@@ -23,6 +25,21 @@ impl From<serenity::Error> for Error {
     fn from(error: serenity::Error) -> Self {
         Self::Discord(Box::new(error))
     }
+}
+
+/// Failures while loading or validating the configuration file.
+#[derive(Error, Debug)]
+pub enum ConfigError {
+    #[error("failed to read config file `{path}`: {source}")]
+    Read {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to parse config file: {0}")]
+    Parse(#[from] toml::de::Error),
+    #[error("invalid configuration: {0}")]
+    Invalid(String),
 }
 
 /// Failures while preparing or sending an announcement.

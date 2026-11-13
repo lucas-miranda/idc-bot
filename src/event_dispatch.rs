@@ -2,8 +2,8 @@ use poise::FrameworkContext;
 use poise::serenity_prelude as serenity;
 use tracing::{error, info};
 
-use crate::bootstrap::AppState;
 use crate::error::Error;
+use crate::state::AppState;
 
 /// Thin routing from serenity events to use cases.
 pub async fn handle_event<'a>(
@@ -15,12 +15,9 @@ pub async fn handle_event<'a>(
             info!(user = %data_about_bot.user.name, "logged in");
         }
         serenity::FullEvent::VoiceStateUpdate { old, new } => {
-            if let Err(error) = framework
-                .user_data
-                .voice
-                .handle_transition(old.as_ref(), new)
-                .await
-            {
+            let voice = framework.user_data.voice.read().await.clone();
+
+            if let Err(error) = voice.handle_transition(old.as_ref(), new).await {
                 error!(%error, "failed to handle voice state update");
             }
         }

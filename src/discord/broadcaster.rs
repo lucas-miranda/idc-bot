@@ -59,7 +59,7 @@ impl DiscordNotifier {
         for call_kind in &config.call_kinds {
             let content = match guild.roles.get(&call_kind.role_id) {
                 Some(role) => {
-                    Self::build_message(role, emojis.get(&pride_heart_emoji_id), call_kind.message)
+                    Self::build_message(role, emojis.get(&pride_heart_emoji_id), &call_kind.message)
                 }
                 None => {
                     tracing::warn!(
