@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use poise::serenity_prelude as serenity;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info};
 
 use crate::commands;
@@ -22,7 +22,7 @@ pub async fn run() -> Result<(), Error> {
 
     let framework: poise::Framework<AppState, Error> = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![commands::reload()],
+            commands: vec![commands::reload(), commands::call()],
             event_handler: |framework, event| {
                 Box::pin(event_dispatch::handle_event(framework, event))
             },
@@ -43,6 +43,7 @@ pub async fn run() -> Result<(), Error> {
                     voice: RwLock::new(Arc::new(voice)),
                     config_path,
                     cooldowns,
+                    config_lock: Mutex::new(()),
                 })
             })
         })

@@ -178,29 +178,25 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
 
             if everyone_can_speak_on_previous_channel {
                 debug!(
-                    role = %self.notifier.social_role_name(),
+                    channel = %channel.name,
                     "not announcing: moved from another social channel"
                 );
             } else if !everyone_can_speak_on_channel {
                 debug!(
-                    role = %self.notifier.social_role_name(),
+                    channel = %channel.name,
                     "not announcing: not a social channel"
                 );
             } else {
-                info!(
-                    channel = %channel.name,
-                    role = %self.notifier.social_role_name(),
-                    "announcing call"
-                );
+                info!(channel = %channel.name, "announcing call");
 
-                match self.config.kind_for_channel(channel.id) {
-                    Some(call_kind) => {
-                        self.notifier.notify(&call_kind.kind).await?;
+                match self.config.call_for_channel(channel.id) {
+                    Some(_) => {
+                        self.notifier.notify(channel.id).await?;
                     }
                     None => {
                         warn!(
                             channel_id = %channel.id,
-                            "no call kind configured for channel; skipping announcement"
+                            "no call configured for channel; skipping announcement"
                         );
                     }
                 }

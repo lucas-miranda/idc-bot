@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 use poise::serenity_prelude as serenity;
 
 use crate::config::Config;
-use crate::domain::{CallKind, CooldownPolicy, CooldownStatus};
+use crate::domain::{CooldownPolicy, CooldownStatus};
 use crate::error::{Error, NotifierError, StartupError};
 use crate::ports::{CooldownStore, Notifier};
 
@@ -11,8 +11,7 @@ use crate::ports::{CooldownStore, Notifier};
 pub struct DiscordNotifier {
     ctx: serenity::Context,
     target_channel: serenity::GuildChannel,
-    social_role: serenity::Role,
-    messages: HashMap<CallKind, String>,
+    messages: HashMap<serenity::ChannelId, String>,
     cooldowns: Arc<dyn CooldownStore>,
     policy: CooldownPolicy,
 }
@@ -34,18 +33,6 @@ impl DiscordNotifier {
 
         let guild = ctx.http.get_guild(config.guild_id).await?;
 
-        let social_config = config
-            .call_kinds
-            .iter()
-            .find(|call_kind| call_kind.kind == CallKind::Social)
-            .ok_or(StartupError::MissingCallKind(CallKind::Social))?;
-
-        let social_role = guild
-            .roles
-            .get(&social_config.role_id)
-            .cloned()
-            .ok_or(StartupError::RoleNotFound(social_config.role_id))?;
-
         let emojis: HashMap<_, _> = guild
             .emojis(&ctx.http)
             .await?
@@ -56,28 +43,27 @@ impl DiscordNotifier {
         let pride_heart_emoji_id = serenity::EmojiId::new(1073325566196990142);
 
         let mut messages = HashMap::new();
-        for call_kind in &config.call_kinds {
-            let content = match guild.roles.get(&call_kind.role_id) {
+        for call in &config.call_kinds {
+            let content = match guild.roles.get(&call.role_id) {
                 Some(role) => {
-                    Self::build_message(role, emojis.get(&pride_heart_emoji_id), &call_kind.message)
+                    Self::build_message(role, emojis.get(&pride_heart_emoji_id), &call.message)
                 }
                 None => {
                     tracing::warn!(
-                        role_id = %call_kind.role_id,
-                        call_kind = %call_kind.kind,
+                        role_id = %call.role_id,
+                        channel_id = %call.voice_channel,
                         "role not found; announcement will be empty"
                     );
                     String::new()
                 }
             };
 
-            messages.insert(call_kind.kind.clone(), content);
+            messages.insert(call.voice_channel, content);
         }
 
         Ok(Self {
             ctx,
             target_channel,
-            social_role,
             messages,
             cooldowns,
             policy: CooldownPolicy::new(config.cooldown),
@@ -101,17 +87,13 @@ impl DiscordNotifier {
 }
 
 impl Notifier for DiscordNotifier {
-    fn social_role_name(&self) -> &str {
-        &self.social_role.name
-    }
-
-    async fn notify(&self, kind: &CallKind) -> Result<(), Error> {
+    async fn notify(&self, channel_id: serenity::ChannelId) -> Result<(), Error> {
         let content = self
             .messages
-            .get(kind)
-            .ok_or_else(|| NotifierError::UnknownCallKind(kind.clone()))?;
+            .get(&channel_id)
+            .ok_or(NotifierError::UnknownChannel(channel_id))?;
 
-        let key = kind.to_string();
+        let key = channel_id.to_string();
         let now = Instant::now();
 
         match self.policy.check(now, self.cooldowns.last_sent(&key)) {

@@ -3,8 +3,6 @@ use std::time::Duration;
 use poise::serenity_prelude as serenity;
 use thiserror::Error;
 
-use crate::domain::CallKind;
-
 /// Crate-wide error type.
 ///
 /// Each layer contributes one variant; `?` conversions keep call sites clean.
@@ -27,7 +25,7 @@ impl From<serenity::Error> for Error {
     }
 }
 
-/// Failures while loading or validating the configuration file.
+/// Failures while loading, validating or editing the configuration file.
 #[derive(Error, Debug)]
 pub enum ConfigError {
     #[error("failed to read config file `{path}`: {source}")]
@@ -36,8 +34,16 @@ pub enum ConfigError {
         #[source]
         source: std::io::Error,
     },
+    #[error("failed to write config file `{path}`: {source}")]
+    Write {
+        path: std::path::PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("failed to parse config file: {0}")]
     Parse(#[from] toml::de::Error),
+    #[error("failed to edit config file: {0}")]
+    Edit(#[from] toml_edit::TomlError),
     #[error("invalid configuration: {0}")]
     Invalid(String),
 }
@@ -45,8 +51,8 @@ pub enum ConfigError {
 /// Failures while preparing or sending an announcement.
 #[derive(Error, Debug)]
 pub enum NotifierError {
-    #[error("message label was not found")]
-    UnknownCallKind(CallKind),
+    #[error("no call is registered for channel `{0}`")]
+    UnknownChannel(serenity::ChannelId),
     #[error(
         "cooldown ({}h{}m{}s) isn't completed yet, time elapsed: {}h{}m{}s",
         .cooldown.as_secs() / 3600,
@@ -75,8 +81,6 @@ pub enum StartupError {
     RoleNotFound(serenity::RoleId),
     #[error("provided channel with id `{0}` isn't a text channel")]
     MissingTextChannel(serenity::ChannelId),
-    #[error("`{0}` call kind isn't configured")]
-    MissingCallKind(CallKind),
 }
 
 impl From<serenity::Error> for StartupError {

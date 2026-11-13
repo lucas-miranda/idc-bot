@@ -3,7 +3,7 @@
 # Copy this file to your Railway volume, e.g. /data/config.toml, and replace
 # the placeholder ids. Set CONFIG_PATH if you mount the volume elsewhere.
 #
-# All ids are Discord snowflakes. Replace every 0 below.
+# Calls can also be managed at runtime with the /call commands.
 
 guild_id = 0
 broadcast_channel_id = 0
@@ -12,24 +12,11 @@ cooldown_secs = 3600
 # Voice channels the bot should leave alone.
 ignored_voice_channels = []
 
-# Extra roles allowed to run /reload.
-# Bot owners and members with MANAGE_GUILD can always run it.
+# Extra roles allowed to run /reload and the /call administrative subcommands.
+# Bot owners and members with MANAGE_GUILD can always run them.
 reload_roles = []
 
 [[call_kinds]]
-kind = "social" # social | games | movies
-voice_channels = []
-role_id = 0
-message = " call aberta! "
-
-[[call_kinds]]
-kind = "games"
-voice_channels = []
-role_id = 0
-message = " call aberta! "
-
-[[call_kinds]]
-kind = "movies"
-voice_channels = []
+voice_channel = 0
 role_id = 0
 message = " call aberta! "

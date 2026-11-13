@@ -7,10 +7,13 @@ use std::{
 use poise::serenity_prelude as serenity;
 use serde::Deserialize;
 
-use crate::{domain::CallKind, error::ConfigError};
+use crate::error::ConfigError;
 
-pub mod call_kinds;
-pub use call_kinds::CallKindConfig;
+mod calls;
+pub use calls::CallConfig;
+
+pub mod edit;
+pub use edit::DEFAULT_CALL_MESSAGE;
 
 /// Where the bot looks for its configuration when `CONFIG_PATH` is unset.
 pub const DEFAULT_CONFIG_PATH: &str = "/data/config.toml";
@@ -32,7 +35,7 @@ pub struct Config {
     pub broadcast_channel_id: serenity::ChannelId,
     pub ignored_voice_channels: Vec<serenity::ChannelId>,
     pub reload_roles: Vec<serenity::RoleId>,
-    pub call_kinds: Vec<CallKindConfig>,
+    pub call_kinds: Vec<CallConfig>,
     pub cooldown: Duration,
 }
 
@@ -55,11 +58,11 @@ impl Config {
         raw.try_into()
     }
 
-    /// Find which call kind owns a voice channel.
-    pub fn kind_for_channel(&self, channel_id: serenity::ChannelId) -> Option<&CallKindConfig> {
+    /// Find the call registered for a voice channel.
+    pub fn call_for_channel(&self, channel_id: serenity::ChannelId) -> Option<&CallConfig> {
         self.call_kinds
             .iter()
-            .find(|call_kind| call_kind.voice_channels.contains(&channel_id))
+            .find(|call| call.voice_channel == channel_id)
     }
 }
 
@@ -72,13 +75,13 @@ struct RawConfig {
     #[serde(default)]
     reload_roles: Vec<u64>,
     cooldown_secs: u64,
-    call_kinds: Vec<RawCallKind>,
+    #[serde(default)]
+    call_kinds: Vec<RawCall>,
 }
 
 #[derive(Deserialize)]
-struct RawCallKind {
-    kind: CallKind,
-    voice_channels: Vec<u64>,
+struct RawCall {
+    voice_channel: u64,
     role_id: u64,
     message: String,
 }
@@ -96,12 +99,6 @@ impl TryFrom<RawConfig> for Config {
             ));
         }
 
-        if raw.call_kinds.is_empty() {
-            return Err(ConfigError::Invalid(
-                "at least one `[[call_kinds]]` entry is required".to_owned(),
-            ));
-        }
-
         let mut ignored_voice_channels = Vec::with_capacity(raw.ignored_voice_channels.len());
         for id in raw.ignored_voice_channels {
             ensure_non_zero(id, "ignored_voice_channels")?;
@@ -114,45 +111,24 @@ impl TryFrom<RawConfig> for Config {
             reload_roles.push(serenity::RoleId::new(id));
         }
 
-        let mut seen_kinds = HashSet::new();
         let mut seen_channels = HashSet::new();
         let mut call_kinds = Vec::with_capacity(raw.call_kinds.len());
 
-        for raw_kind in raw.call_kinds {
-            if !seen_kinds.insert(raw_kind.kind.clone()) {
+        for raw_call in raw.call_kinds {
+            ensure_non_zero(raw_call.voice_channel, "call_kinds.voice_channel")?;
+            ensure_non_zero(raw_call.role_id, "call_kinds.role_id")?;
+
+            if !seen_channels.insert(raw_call.voice_channel) {
                 return Err(ConfigError::Invalid(format!(
-                    "duplicate call kind `{}`",
-                    raw_kind.kind
+                    "voice channel `{}` is registered more than once",
+                    raw_call.voice_channel
                 )));
             }
 
-            ensure_non_zero(raw_kind.role_id, "call_kinds.role_id")?;
-
-            if raw_kind.voice_channels.is_empty() {
-                return Err(ConfigError::Invalid(format!(
-                    "call kind `{}` needs at least one voice channel",
-                    raw_kind.kind
-                )));
-            }
-
-            let mut voice_channels = Vec::with_capacity(raw_kind.voice_channels.len());
-            for id in raw_kind.voice_channels {
-                ensure_non_zero(id, "call_kinds.voice_channels")?;
-
-                if !seen_channels.insert(id) {
-                    return Err(ConfigError::Invalid(format!(
-                        "voice channel `{id}` is assigned to more than one call kind"
-                    )));
-                }
-
-                voice_channels.push(serenity::ChannelId::new(id));
-            }
-
-            call_kinds.push(CallKindConfig {
-                kind: raw_kind.kind,
-                voice_channels,
-                role_id: serenity::RoleId::new(raw_kind.role_id),
-                message: raw_kind.message,
+            call_kinds.push(CallConfig {
+                voice_channel: serenity::ChannelId::new(raw_call.voice_channel),
+                role_id: serenity::RoleId::new(raw_call.role_id),
+                message: raw_call.message,
             });
         }
 
@@ -179,7 +155,7 @@ fn ensure_non_zero(value: u64, field: &str) -> Result<(), ConfigError> {
 mod tests {
     use std::time::Duration;
 
-    use crate::{domain::CallKind, error::ConfigError};
+    use crate::error::ConfigError;
 
     use super::Config;
 
@@ -189,8 +165,7 @@ broadcast_channel_id = 2
 cooldown_secs = 3600
 
 [[call_kinds]]
-kind = "social"
-voice_channels = [3]
+voice_channel = 3
 role_id = 4
 message = "hi"
 "#;
@@ -204,11 +179,22 @@ message = "hi"
         assert_eq!(config.cooldown, Duration::from_secs(3600));
         assert_eq!(config.call_kinds.len(), 1);
 
-        let call_kind = &config.call_kinds[0];
-        assert_eq!(call_kind.kind, CallKind::Social);
-        assert_eq!(call_kind.voice_channels[0].get(), 3);
-        assert_eq!(call_kind.role_id.get(), 4);
-        assert_eq!(call_kind.message, "hi");
+        let call = &config.call_kinds[0];
+        assert_eq!(call.voice_channel.get(), 3);
+        assert_eq!(call.role_id.get(), 4);
+        assert_eq!(call.message, "hi");
+    }
+
+    #[test]
+    fn accepts_an_empty_call_list() {
+        let toml = r#"
+guild_id = 1
+broadcast_channel_id = 2
+cooldown_secs = 3600
+"#;
+
+        let config = Config::from_toml_str(toml).expect("config should parse");
+        assert!(config.call_kinds.is_empty());
     }
 
     #[test]
@@ -235,30 +221,6 @@ message = "hi"
     }
 
     #[test]
-    fn rejects_duplicate_call_kinds() {
-        let toml = r#"
-guild_id = 1
-broadcast_channel_id = 2
-cooldown_secs = 3600
-
-[[call_kinds]]
-kind = "social"
-voice_channels = [3]
-role_id = 4
-message = "hi"
-
-[[call_kinds]]
-kind = "social"
-voice_channels = [5]
-role_id = 6
-message = "hi"
-"#;
-
-        let error = Config::from_toml_str(toml).expect_err("should fail");
-        assert!(matches!(error, ConfigError::Invalid(_)));
-    }
-
-    #[test]
     fn rejects_duplicate_voice_channels() {
         let toml = r#"
 guild_id = 1
@@ -266,29 +228,14 @@ broadcast_channel_id = 2
 cooldown_secs = 3600
 
 [[call_kinds]]
-kind = "social"
-voice_channels = [3]
+voice_channel = 3
 role_id = 4
 message = "hi"
 
 [[call_kinds]]
-kind = "games"
-voice_channels = [3]
+voice_channel = 3
 role_id = 5
 message = "hi"
-"#;
-
-        let error = Config::from_toml_str(toml).expect_err("should fail");
-        assert!(matches!(error, ConfigError::Invalid(_)));
-    }
-
-    #[test]
-    fn rejects_an_empty_call_kind_list() {
-        let toml = r#"
-guild_id = 1
-broadcast_channel_id = 2
-cooldown_secs = 3600
-call_kinds = []
 "#;
 
         let error = Config::from_toml_str(toml).expect_err("should fail");

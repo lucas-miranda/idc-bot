@@ -11,6 +11,6 @@ serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "signal", "fs"] }
 thiserror = "2.0.21"
 toml = "1.2.1"
-enum-display = "0.2.1"
+toml_edit = "0.25.19"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

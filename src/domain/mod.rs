@@ -4,14 +4,12 @@
 //! It may use serenity's plain-data value types (ids, permissions, overwrites),
 //! but never the client/runtime types.
 
+pub mod access;
+
 mod call_event;
 pub use call_event::CallEvent;
-
-mod call_kind;
-pub use call_kind::CallKind;
 
 mod cooldown;
 pub use cooldown::{CooldownPolicy, CooldownStatus};
 
-pub mod access;
 pub mod overwrites;
