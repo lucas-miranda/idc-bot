@@ -6,9 +6,9 @@ edition = "2024"
 rust-version = "1.100.0"
 
 [dependencies]
-poise = { version = "0.6.1", features = ["cache"] }
-tokio = { version = "1.25.1", features = ["macros", "rt-multi-thread", "signal"] }
-thiserror = "2.0.17"
+poise = { version = "0.7.1", features = ["cache"] }
+tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "signal"] }
+thiserror = "2.0.21"
 enum-display = "0.2.1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }

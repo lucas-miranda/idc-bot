@@ -25,8 +25,8 @@ pub async fn run() -> Result<(), Error> {
 
     let framework: poise::Framework<AppState, Error> = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            event_handler: |ctx, event, framework, data| {
-                Box::pin(event_dispatch::handle_event(ctx, event, framework, data))
+            event_handler: |framework, event| {
+                Box::pin(event_dispatch::handle_event(framework, event))
             },
             ..Default::default()
         })
