@@ -62,9 +62,10 @@ impl DiscordNotifier {
                     Self::build_message(role, emojis.get(&pride_heart_emoji_id), call_kind.message)
                 }
                 None => {
-                    println!(
-                        "Failed to send message: role with id `{}` was not found",
-                        call_kind.role_id
+                    tracing::warn!(
+                        role_id = %call_kind.role_id,
+                        call_kind = %call_kind.kind,
+                        "role not found; announcement will be empty"
                     );
                     String::new()
                 }

@@ -6,10 +6,16 @@ pub mod domain;
 pub mod error;
 pub mod event_dispatch;
 pub mod ports;
+pub mod telemetry;
 
 pub use error::Error;
 
 #[tokio::main]
 async fn main() {
-    bootstrap::run().await;
+    telemetry::init_tracing();
+
+    if let Err(error) = bootstrap::run().await {
+        tracing::error!(%error, "bot stopped with an error");
+        std::process::exit(1);
+    }
 }

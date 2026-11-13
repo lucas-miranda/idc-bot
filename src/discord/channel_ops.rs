@@ -38,7 +38,7 @@ impl VoiceChannelPort for DiscordVoiceChannels {
             Ok(serenity::Channel::Guild(channel)) => Some(channel),
             Ok(_) => None,
             Err(e) => {
-                println!("Failed to get channel.\n{}", e);
+                tracing::warn!(%e, channel_id = %channel_id, "failed to fetch channel");
                 None
             }
         }
@@ -92,7 +92,7 @@ impl VoiceChannelPort for DiscordVoiceChannels {
                 .into_iter()
                 .find(|member| self.is_staff(channel, member)),
             Err(e) => {
-                println!("Failed to get channel members\n{}", e);
+                tracing::warn!(%e, channel_id = %channel.id, "failed to list channel members");
                 None
             }
         }

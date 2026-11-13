@@ -1,5 +1,6 @@
 use poise::FrameworkContext;
 use poise::serenity_prelude as serenity;
+use tracing::{error, info};
 
 use crate::bootstrap::AppState;
 use crate::error::Error;
@@ -13,11 +14,11 @@ pub async fn handle_event<'a>(
 ) -> Result<(), Error> {
     match event {
         serenity::FullEvent::Ready { data_about_bot, .. } => {
-            println!("Logged in as {}", data_about_bot.user.name);
+            info!(user = %data_about_bot.user.name, "logged in");
         }
         serenity::FullEvent::VoiceStateUpdate { old, new } => {
-            if let Err(e) = data.voice.handle_transition(old.as_ref(), new).await {
-                println!("An error occurred:\n{}", e);
+            if let Err(error) = data.voice.handle_transition(old.as_ref(), new).await {
+                error!(%error, "failed to handle voice state update");
             }
         }
         _ => {}

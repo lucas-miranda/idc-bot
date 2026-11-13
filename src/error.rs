@@ -48,6 +48,8 @@ pub enum NotifierError {
 /// Failures while building the bot's services at startup.
 #[derive(Error, Debug)]
 pub enum StartupError {
+    #[error("environment variable `DISCORD_TOKEN` is missing")]
+    MissingToken,
     #[error(transparent)]
     Serenity(Box<serenity::Error>),
     #[error("guild with id `{0}` was not found")]

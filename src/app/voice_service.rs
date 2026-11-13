@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use poise::serenity_prelude as serenity;
+use tracing::{debug, info, warn};
 
 use crate::config::Config;
 use crate::domain::{CallEvent, overwrites};
@@ -83,10 +84,10 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
         channel: &mut serenity::GuildChannel,
     ) -> Result<(), Error> {
         if self.channels.is_staff(channel, member) && self.is_public_voice_channel(channel) {
-            println!(
-                "{} entered voice channel {}",
-                member.display_name(),
-                channel.name
+            debug!(
+                member = %member.display_name(),
+                channel = %channel.name,
+                "member entered voice channel"
             );
 
             self.staff_entering_public_voice_channel(member, channel, None)
@@ -103,10 +104,10 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
         channel: &mut serenity::GuildChannel,
     ) -> Result<(), Error> {
         if self.channels.is_staff(channel, member) && self.is_public_voice_channel(channel) {
-            println!(
-                "{} left voice channel {}",
-                member.display_name(),
-                channel.name
+            debug!(
+                member = %member.display_name(),
+                channel = %channel.name,
+                "member left voice channel"
             );
 
             self.staff_leaving_public_voice_channel(member, channel)
@@ -124,13 +125,13 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
         new_member: &serenity::Member,
         new_channel: Option<serenity::GuildChannel>,
     ) -> Result<(), Error> {
-        println!("{} moved from voice channel", old_member.display_name());
+        debug!(member = %old_member.display_name(), "member moved voice channel");
 
         if let Some(from) = &mut old_channel
             && self.channels.is_staff(from, old_member)
             && self.is_public_voice_channel(from)
         {
-            println!("  from voice channel {}", from.name);
+            debug!(channel = %from.name, "leaving channel");
 
             self.staff_leaving_public_voice_channel(old_member, from)
                 .await?;
@@ -140,7 +141,7 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
             && self.channels.is_staff(&to, new_member)
             && self.is_public_voice_channel(&to)
         {
-            println!("  to voice channel {}", to.name);
+            debug!(channel = %to.name, "entering channel");
 
             self.staff_entering_public_voice_channel(new_member, &mut to, old_channel.as_mut())
                 .await?;
@@ -155,10 +156,10 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
         channel: &mut serenity::GuildChannel,
         previous_channel: Option<&mut serenity::GuildChannel>,
     ) -> Result<(), Error> {
-        println!("  changing channel to be visible...");
+        debug!("making channel visible");
 
         if self.channels.reveal(channel).await? {
-            println!("  done!");
+            debug!("channel is now visible");
 
             let everyone_can_speak_on_channel =
                 overwrites::allows_speak(&channel.permission_overwrites, channel.guild_id);
@@ -171,30 +172,36 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
                 .unwrap_or_default();
 
             if everyone_can_speak_on_previous_channel {
-                println!(
-                    "  not mentioning {} role, moving from another social channel",
-                    self.notifier.social_role_name()
+                debug!(
+                    role = %self.notifier.social_role_name(),
+                    "not announcing: moved from another social channel"
                 );
             } else if !everyone_can_speak_on_channel {
-                println!(
-                    "  not mentioning {} role, isn't a social channel",
-                    self.notifier.social_role_name()
+                debug!(
+                    role = %self.notifier.social_role_name(),
+                    "not announcing: not a social channel"
                 );
             } else {
-                println!("  mentioning {} role", self.notifier.social_role_name());
+                info!(
+                    channel = %channel.name,
+                    role = %self.notifier.social_role_name(),
+                    "announcing call"
+                );
 
                 match self.config.kind_for_channel(channel.id) {
                     Some(call_kind) => {
-                        println!("  done!");
                         self.notifier.notify(&call_kind.kind).await?;
                     }
                     None => {
-                        println!("  failed to find channel...");
+                        warn!(
+                            channel_id = %channel.id,
+                            "no call kind configured for channel; skipping announcement"
+                        );
                     }
                 }
             }
         } else {
-            println!("  there is nothing to do!");
+            debug!("nothing to do; channel was already visible");
         }
 
         Ok(())
@@ -207,25 +214,26 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
     ) -> Result<(), Error> {
         match self.channels.connected_staff(channel) {
             Some(member) => {
-                println!(
-                    "  Staff member {} is still connected to channel",
-                    member.display_name()
+                debug!(
+                    member = %member.display_name(),
+                    "staff member still connected; keeping channel visible"
                 );
             }
             None => {
-                println!("  changing channel to be invisible...");
+                debug!("making channel invisible");
                 self.channels.conceal(channel).await?;
-                println!("  kick remaining connected members...");
+
+                debug!("disconnecting remaining members");
 
                 match self.channels.connected_members(channel) {
                     Ok(members) => {
                         for member in members {
                             self.channels.disconnect(&member).await?;
                         }
-                        println!("  done!");
+                        debug!("remaining members disconnected");
                     }
-                    Err(e) => {
-                        println!("Failed to get channel members\n{}", e);
+                    Err(error) => {
+                        warn!(%error, "failed to list channel members; skipping disconnect");
                     }
                 }
             }
