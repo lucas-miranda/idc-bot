@@ -92,10 +92,21 @@ fn find_role(
     roles: &HashMap<serenity::RoleId, serenity::Role>,
     typed: &str,
 ) -> Option<serenity::RoleId> {
+    if let Some(role_id) = parse_role_mention(typed) {
+        return roles.contains_key(&role_id).then_some(role_id);
+    }
+
     roles
         .values()
         .find(|role| role_name_matches(&role.name, typed))
         .map(|role| role.id)
+}
+
+fn parse_role_mention(typed: &str) -> Option<serenity::RoleId> {
+    let inner = typed.trim().strip_prefix("<@&")?.strip_suffix('>')?;
+    let id = inner.parse::<u64>().ok().filter(|id| *id != 0)?;
+
+    Some(serenity::RoleId::new(id))
 }
 
 fn role_name_matches(name: &str, typed: &str) -> bool {
@@ -124,7 +135,35 @@ async fn send(ctx: Context<'_>, content: impl Into<String>) -> Result<(), Error>
 mod tests {
     use poise::serenity_prelude as serenity;
 
-    use super::{role_is_everyone, role_name_matches};
+    use super::{parse_role_mention, role_is_everyone, role_name_matches};
+
+    #[test]
+    fn parses_role_mentions() {
+        assert_eq!(
+            parse_role_mention("<@&42>"),
+            Some(serenity::RoleId::new(42))
+        );
+        assert_eq!(
+            parse_role_mention("  <@&42>  "),
+            Some(serenity::RoleId::new(42))
+        );
+    }
+
+    #[test]
+    fn ignores_non_role_mentions() {
+        assert_eq!(parse_role_mention("<@42>"), None);
+        assert_eq!(parse_role_mention("<@&abc>"), None);
+        assert_eq!(parse_role_mention("<@&0>"), None);
+        assert_eq!(parse_role_mention("@42"), None);
+    }
+
+    #[test]
+    fn everyone_mention_is_recognized() {
+        let guild_id = serenity::GuildId::new(42);
+        let role_id = parse_role_mention("<@&42>").expect("mention should parse");
+
+        assert!(role_is_everyone(role_id, guild_id));
+    }
 
     #[test]
     fn matches_case_insensitively() {
