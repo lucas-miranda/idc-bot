@@ -23,6 +23,16 @@ pub async fn registrar(
         return Ok(());
     }
 
+    let Some(guild_id) = ctx.guild_id() else {
+        send(ctx, "Use este comando em um servidor.").await?;
+        return Ok(());
+    };
+
+    if role_is_everyone(role.id, guild_id) {
+        send(ctx, "A role @everyone não é permitida.").await?;
+        return Ok(());
+    }
+
     ctx.defer_ephemeral().await?;
 
     match ctx
@@ -51,4 +61,23 @@ async fn send(ctx: Context<'_>, content: impl Into<String>) -> Result<(), Error>
     .await?;
 
     Ok(())
+}
+
+fn role_is_everyone(role_id: serenity::RoleId, guild_id: serenity::GuildId) -> bool {
+    role_id == guild_id.everyone_role()
+}
+
+#[cfg(test)]
+mod tests {
+    use poise::serenity_prelude as serenity;
+
+    use super::role_is_everyone;
+
+    #[test]
+    fn rejects_the_everyone_role() {
+        let guild_id = serenity::GuildId::new(42);
+
+        assert!(role_is_everyone(guild_id.everyone_role(), guild_id));
+        assert!(!role_is_everyone(serenity::RoleId::new(7), guild_id));
+    }
 }

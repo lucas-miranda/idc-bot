@@ -93,6 +93,8 @@ impl TryFrom<RawConfig> for Config {
         ensure_non_zero(raw.guild_id, "guild_id")?;
         ensure_non_zero(raw.broadcast_channel_id, "broadcast_channel_id")?;
 
+        let guild_id = raw.guild_id;
+
         if raw.cooldown_secs == 0 {
             return Err(ConfigError::Invalid(
                 "`cooldown_secs` must be greater than 0".to_owned(),
@@ -118,6 +120,12 @@ impl TryFrom<RawConfig> for Config {
             ensure_non_zero(raw_call.voice_channel, "call_kinds.voice_channel")?;
             ensure_non_zero(raw_call.role_id, "call_kinds.role_id")?;
 
+            if raw_call.role_id == guild_id {
+                return Err(ConfigError::Invalid(
+                    "a call role must not be @everyone".to_owned(),
+                ));
+            }
+
             if !seen_channels.insert(raw_call.voice_channel) {
                 return Err(ConfigError::Invalid(format!(
                     "voice channel `{}` is registered more than once",
@@ -133,7 +141,7 @@ impl TryFrom<RawConfig> for Config {
         }
 
         Ok(Config {
-            guild_id: serenity::GuildId::new(raw.guild_id),
+            guild_id: serenity::GuildId::new(guild_id),
             broadcast_channel_id: serenity::ChannelId::new(raw.broadcast_channel_id),
             ignored_voice_channels,
             reload_roles,
@@ -235,6 +243,23 @@ message = "hi"
 [[call_kinds]]
 voice_channel = 3
 role_id = 5
+message = "hi"
+"#;
+
+        let error = Config::from_toml_str(toml).expect_err("should fail");
+        assert!(matches!(error, ConfigError::Invalid(_)));
+    }
+
+    #[test]
+    fn rejects_the_everyone_role() {
+        let toml = r#"
+guild_id = 42
+broadcast_channel_id = 2
+cooldown_secs = 3600
+
+[[call_kinds]]
+voice_channel = 3
+role_id = 42
 message = "hi"
 "#;
 
