@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use poise::serenity_prelude as serenity;
 use tracing::error;
 
-use crate::commands::{Context, ensure_authorized};
+use crate::commands::{Context, ensure_authorized, is_authorized};
 use crate::config::edit::UpsertOutcome;
 use crate::error::Error;
 
@@ -14,7 +14,9 @@ pub async fn registrar(
     #[description = "Canal de voz"]
     #[channel_types("Voice")]
     voice_channel: serenity::GuildChannel,
-    #[description = "Nome da tag (role) a ser mencionada"] role: String,
+    #[description = "Nome da tag (role) a ser mencionada"]
+    #[autocomplete = "autocomplete_role"]
+    role: String,
 ) -> Result<(), Error> {
     if !ensure_authorized(ctx).await? {
         return Ok(());
@@ -61,14 +63,56 @@ async fn resolve_role(ctx: Context<'_>, typed: &str) -> Result<Option<serenity::
         return Ok(None);
     };
 
-    let cache = &ctx.serenity_context().cache;
+    let roles = guild_roles(ctx.serenity_context(), guild_id).await?;
 
-    if let Some(guild) = guild_id.to_guild_cached(cache) {
-        return Ok(find_role(&guild.roles, typed));
+    Ok(find_role(&roles, typed))
+}
+
+async fn guild_roles(
+    ctx: &serenity::Context,
+    guild_id: serenity::GuildId,
+) -> Result<HashMap<serenity::RoleId, serenity::Role>, Error> {
+    if let Some(guild) = guild_id.to_guild_cached(&ctx.cache) {
+        return Ok(guild.roles.clone());
     }
 
-    let guild = ctx.serenity_context().http.get_guild(guild_id).await?;
-    Ok(find_role(&guild.roles, typed))
+    Ok(ctx.http.get_guild(guild_id).await?.roles)
+}
+
+pub async fn autocomplete_role<'a>(
+    ctx: Context<'a>,
+    partial: &'a str,
+) -> serenity::CreateAutocompleteResponse {
+    if !is_authorized(ctx).await {
+        return serenity::CreateAutocompleteResponse::new();
+    }
+
+    let Some(guild_id) = ctx.guild_id() else {
+        return serenity::CreateAutocompleteResponse::new();
+    };
+
+    let Ok(roles) = guild_roles(ctx.serenity_context(), guild_id).await else {
+        return serenity::CreateAutocompleteResponse::new();
+    };
+
+    let needle = partial.trim().trim_start_matches('@').trim().to_lowercase();
+
+    let mut matches: Vec<&serenity::Role> = roles
+        .values()
+        .filter(|role| role.id != guild_id.everyone_role())
+        .filter(|role| needle.is_empty() || role.name.to_lowercase().contains(&needle))
+        .collect();
+
+    matches.sort_by_key(|role| role.name.to_lowercase());
+    matches.dedup_by(|a, b| a.name.eq_ignore_ascii_case(&b.name));
+
+    let choices: Vec<serenity::AutocompleteChoice> = matches
+        .into_iter()
+        .take(25)
+        .map(|role| serenity::AutocompleteChoice::from(role.name.clone()))
+        .collect();
+
+    serenity::CreateAutocompleteResponse::new().set_choices(choices)
 }
 
 fn find_role(

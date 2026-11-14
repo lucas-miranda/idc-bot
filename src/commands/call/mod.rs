@@ -73,4 +73,21 @@ mod tests {
 
         assert!(call.autocomplete_callback.is_some());
     }
+
+    #[test]
+    fn registrar_role_uses_autocomplete() {
+        let command = crate::commands::call();
+        let registrar = command
+            .subcommands
+            .iter()
+            .find(|subcommand| subcommand.name == "registrar")
+            .expect("registrar subcommand should exist");
+        let role = registrar
+            .parameters
+            .iter()
+            .find(|parameter| parameter.name == "role")
+            .expect("role parameter should exist");
+
+        assert!(role.autocomplete_callback.is_some());
+    }
 }
