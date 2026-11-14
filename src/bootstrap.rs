@@ -22,7 +22,7 @@ pub async fn run() -> Result<(), Error> {
 
     let framework: poise::Framework<AppState, Error> = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![commands::reload(), commands::call()],
+            commands: vec![commands::recarregar(), commands::call()],
             event_handler: |framework, event| {
                 Box::pin(event_dispatch::handle_event(framework, event))
             },

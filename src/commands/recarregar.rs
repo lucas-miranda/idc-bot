@@ -5,7 +5,7 @@ use crate::error::Error;
 
 /// Recarrega a configuração do bot a partir do arquivo TOML.
 #[poise::command(slash_command, guild_only)]
-pub async fn reload(ctx: Context<'_>) -> Result<(), Error> {
+pub async fn recarregar(ctx: Context<'_>) -> Result<(), Error> {
     if !ensure_authorized(ctx).await? {
         return Ok(());
     }
@@ -16,7 +16,7 @@ pub async fn reload(ctx: Context<'_>) -> Result<(), Error> {
         Ok(()) => {
             ctx.send(
                 poise::CreateReply::default()
-                    .content("Configuration reloaded.")
+                    .content("Configuração recarregada.")
                     .ephemeral(true),
             )
             .await?;
@@ -26,7 +26,7 @@ pub async fn reload(ctx: Context<'_>) -> Result<(), Error> {
 
             ctx.send(
                 poise::CreateReply::default()
-                    .content(format!("Reload failed: {error}"))
+                    .content(format!("Falha ao recarregar: {error}"))
                     .ephemeral(true),
             )
             .await?;

@@ -1,8 +1,8 @@
 mod call;
 pub use call::call;
 
-mod reload;
-pub use reload::reload;
+mod recarregar;
+pub use recarregar::recarregar;
 
 use std::{collections::HashSet, sync::Arc};
 
@@ -12,7 +12,7 @@ use crate::{domain::access::can_reload, error::Error, state::AppState};
 
 pub(crate) type Context<'a> = poise::Context<'a, AppState, Error>;
 
-/// Gate the administrative commands behind the same rule as `/reload`.
+/// Gate the administrative commands behind the same rule as `/recarregar`.
 pub(crate) async fn ensure_authorized(ctx: Context<'_>) -> Result<bool, Error> {
     if is_authorized(ctx).await {
         return Ok(true);

@@ -1,6 +1,6 @@
 use poise::serenity_prelude as serenity;
 
-/// Whether a member may run `/reload`.
+/// Whether a member may run `/recarregar`.
 ///
 /// Bot owners and members with `MANAGE_GUILD` always may; otherwise the member
 /// needs at least one of the roles configured in `reload_roles`.
