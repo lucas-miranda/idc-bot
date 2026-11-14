@@ -50,8 +50,14 @@ pub async fn listar(ctx: Context<'_>) -> Result<(), Error> {
             };
 
         let emoji = if active { "🟢" } else { "🔴" };
+        let channel_display = if active {
+            format!("<#{}>", call.voice_channel.get())
+        } else {
+            channel_name
+        };
+
         lines.push(format!(
-            "- {emoji} <@&{}>: {channel_name}",
+            "- {emoji} <@&{}>: {channel_display}",
             call.role_id.get()
         ));
     }
