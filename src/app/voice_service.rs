@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use poise::serenity_prelude as serenity;
 use tracing::{debug, info, warn};
@@ -8,7 +8,7 @@ use crate::domain::{CallEvent, overwrites};
 use crate::error::Error;
 use crate::ports::{Notifier, VoiceChannelPort};
 
-/// Use cases around public voice channels.
+/// Use cases around registered voice channels.
 ///
 /// This is the old `VoiceChannelManager`, but it no longer knows about Discord:
 /// it talks to the [`VoiceChannelPort`] and [`Notifier`] contracts instead.
@@ -37,6 +37,7 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
         &self,
         old: Option<&serenity::VoiceState>,
         new: &serenity::VoiceState,
+        owners: &HashSet<serenity::UserId>,
     ) -> Result<(), Error> {
         let old_channel = old.map(|state| state.channel_id.map(|id| id.get()));
         let new_channel = new.channel_id.map(|id| id.get());
@@ -48,7 +49,7 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
                     && let Some(channel_id) = new.channel_id
                     && let Some(mut channel) = self.channels.fetch_channel(channel_id).await
                 {
-                    self.user_entering(member, &mut channel).await?;
+                    self.user_entering(member, &mut channel, owners).await?;
                 }
             }
             CallEvent::Leave => {
@@ -57,7 +58,7 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
                     && let Some(channel_id) = state.channel_id
                     && let Some(mut channel) = self.channels.fetch_channel(channel_id).await
                 {
-                    self.user_leaving(member, &mut channel).await?;
+                    self.user_leaving(member, &mut channel, owners).await?;
                 }
             }
             CallEvent::Move => {
@@ -70,7 +71,8 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
                     let from = self.channels.fetch_channel(old_channel_id).await;
                     let to = self.channels.fetch_channel(new_channel_id).await;
 
-                    self.user_moving(old_member, from, new_member, to).await?;
+                    self.user_moving(old_member, from, new_member, to, owners)
+                        .await?;
                 }
             }
         }
@@ -78,8 +80,10 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
         Ok(())
     }
 
-    fn is_public_voice_channel(&self, channel: &serenity::GuildChannel) -> bool {
-        !self.config.ignored_voice_channels.contains(&channel.id)
+    /// A channel is managed only when it is registered and not ignored.
+    fn is_managed_channel(&self, channel: &serenity::GuildChannel) -> bool {
+        self.config.call_for_channel(channel.id).is_some()
+            && !self.config.ignored_voice_channels.contains(&channel.id)
     }
 
     /// A user just entered a voice channel.
@@ -87,12 +91,17 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
         &self,
         member: &serenity::Member,
         channel: &mut serenity::GuildChannel,
+        owners: &HashSet<serenity::UserId>,
     ) -> Result<(), Error> {
-        if self.channels.is_staff(channel, member) && self.is_public_voice_channel(channel) {
+        if self
+            .channels
+            .is_staff(member, owners, &self.config.reload_roles)
+            && self.is_managed_channel(channel)
+        {
             debug!(
                 member = %member.display_name(),
                 channel = %channel.name,
-                "member entered voice channel"
+                "staff entered voice channel"
             );
 
             self.staff_entering_public_voice_channel(member, channel, None)
@@ -107,15 +116,20 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
         &self,
         member: &serenity::Member,
         channel: &mut serenity::GuildChannel,
+        owners: &HashSet<serenity::UserId>,
     ) -> Result<(), Error> {
-        if self.channels.is_staff(channel, member) && self.is_public_voice_channel(channel) {
+        if self
+            .channels
+            .is_staff(member, owners, &self.config.reload_roles)
+            && self.is_managed_channel(channel)
+        {
             debug!(
                 member = %member.display_name(),
                 channel = %channel.name,
-                "member left voice channel"
+                "staff left voice channel"
             );
 
-            self.staff_leaving_public_voice_channel(member, channel)
+            self.staff_leaving_public_voice_channel(member, channel, owners)
                 .await?;
         }
 
@@ -129,22 +143,27 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
         mut old_channel: Option<serenity::GuildChannel>,
         new_member: &serenity::Member,
         new_channel: Option<serenity::GuildChannel>,
+        owners: &HashSet<serenity::UserId>,
     ) -> Result<(), Error> {
         debug!(member = %old_member.display_name(), "member moved voice channel");
 
         if let Some(from) = &mut old_channel
-            && self.channels.is_staff(from, old_member)
-            && self.is_public_voice_channel(from)
+            && self
+                .channels
+                .is_staff(old_member, owners, &self.config.reload_roles)
+            && self.is_managed_channel(from)
         {
             debug!(channel = %from.name, "leaving channel");
 
-            self.staff_leaving_public_voice_channel(old_member, from)
+            self.staff_leaving_public_voice_channel(old_member, from, owners)
                 .await?;
         }
 
         if let Some(mut to) = new_channel
-            && self.channels.is_staff(&to, new_member)
-            && self.is_public_voice_channel(&to)
+            && self
+                .channels
+                .is_staff(new_member, owners, &self.config.reload_roles)
+            && self.is_managed_channel(&to)
         {
             debug!(channel = %to.name, "entering channel");
 
@@ -210,10 +229,16 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
 
     async fn staff_leaving_public_voice_channel(
         &self,
-        _member: &serenity::Member,
+        member: &serenity::Member,
         channel: &mut serenity::GuildChannel,
+        owners: &HashSet<serenity::UserId>,
     ) -> Result<(), Error> {
-        match self.channels.connected_staff(channel) {
+        match self.channels.connected_staff(
+            channel,
+            owners,
+            &self.config.reload_roles,
+            Some(member.user.id),
+        ) {
             Some(member) => {
                 debug!(
                     member = %member.display_name(),

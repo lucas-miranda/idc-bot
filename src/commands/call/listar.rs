@@ -4,7 +4,7 @@ use poise::serenity_prelude as serenity;
 use tracing::warn;
 
 use crate::commands::Context;
-use crate::domain::access::can_reload;
+use crate::domain::access::is_staff;
 use crate::error::Error;
 
 /// Lista as calls registradas.
@@ -107,10 +107,6 @@ fn has_staff_member(
         .into_iter()
         .filter(|member| !member.user.bot)
         .any(|member| {
-            if owners.contains(&member.user.id) {
-                return true;
-            }
-
             let has_manage_guild = match guild.as_ref() {
                 Some(guild) => guild.member_permissions(&member).manage_guild(),
                 None => member
@@ -119,7 +115,13 @@ fn has_staff_member(
                     .unwrap_or(false),
             };
 
-            can_reload(false, has_manage_guild, &member.roles, reload_roles)
+            is_staff(
+                member.user.bot,
+                owners.contains(&member.user.id),
+                has_manage_guild,
+                &member.roles,
+                reload_roles,
+            )
         })
 }
 

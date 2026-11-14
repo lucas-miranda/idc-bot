@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use poise::serenity_prelude as serenity;
 
 use crate::Error;
@@ -12,8 +14,14 @@ pub trait VoiceChannelPort: Send + Sync {
         channel_id: serenity::ChannelId,
     ) -> impl Future<Output = Option<serenity::GuildChannel>> + Send;
 
-    /// Whether `member` is a non-bot staff member for this channel.
-    fn is_staff(&self, channel: &serenity::GuildChannel, member: &serenity::Member) -> bool;
+    /// Whether `member` is a staff member: a non-bot owner, a member with
+    /// `MANAGE_GUILD`, or a member holding one of `reload_roles`.
+    fn is_staff(
+        &self,
+        member: &serenity::Member,
+        owners: &HashSet<serenity::UserId>,
+        reload_roles: &[serenity::RoleId],
+    ) -> bool;
 
     /// Make the channel visible. Returns `true` when an edit was performed.
     fn reveal(
@@ -26,7 +34,13 @@ pub trait VoiceChannelPort: Send + Sync {
         channel: &mut serenity::GuildChannel,
     ) -> impl Future<Output = Result<(), Error>> + Send;
 
-    fn connected_staff(&self, channel: &serenity::GuildChannel) -> Option<serenity::Member>;
+    fn connected_staff(
+        &self,
+        channel: &serenity::GuildChannel,
+        owners: &HashSet<serenity::UserId>,
+        reload_roles: &[serenity::RoleId],
+        exclude: Option<serenity::UserId>,
+    ) -> Option<serenity::Member>;
 
     fn connected_members(
         &self,

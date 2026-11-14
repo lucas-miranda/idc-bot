@@ -1,6 +1,9 @@
+use std::collections::HashSet;
+
 use poise::serenity_prelude as serenity;
 
 use crate::Error;
+use crate::domain::access::is_staff as is_staff_member;
 use crate::domain::overwrites;
 use crate::ports::VoiceChannelPort;
 
@@ -12,20 +15,6 @@ pub struct DiscordVoiceChannels {
 impl DiscordVoiceChannels {
     pub fn new(ctx: serenity::Context) -> Self {
         Self { ctx }
-    }
-
-    fn permissions_in(
-        &self,
-        channel: &serenity::GuildChannel,
-        member: &serenity::Member,
-    ) -> Option<serenity::Permissions> {
-        if member.user.bot {
-            return None;
-        }
-
-        let guild = member.guild_id.to_guild_cached(&self.ctx.cache)?;
-
-        Some(guild.user_permissions_in(channel, member))
     }
 }
 
@@ -44,12 +33,30 @@ impl VoiceChannelPort for DiscordVoiceChannels {
         }
     }
 
-    fn is_staff(&self, channel: &serenity::GuildChannel, member: &serenity::Member) -> bool {
-        !member.user.bot
-            && self
-                .permissions_in(channel, member)
-                .map(|permissions| permissions.manage_channels())
-                .unwrap_or_default()
+    fn is_staff(
+        &self,
+        member: &serenity::Member,
+        owners: &HashSet<serenity::UserId>,
+        reload_roles: &[serenity::RoleId],
+    ) -> bool {
+        let has_manage_guild = member
+            .guild_id
+            .to_guild_cached(&self.ctx.cache)
+            .map(|guild| guild.member_permissions(member).manage_guild())
+            .or_else(|| {
+                member
+                    .permissions
+                    .map(|permissions| permissions.manage_guild())
+            })
+            .unwrap_or(false);
+
+        is_staff_member(
+            member.user.bot,
+            owners.contains(&member.user.id),
+            has_manage_guild,
+            &member.roles,
+            reload_roles,
+        )
     }
 
     async fn reveal(&self, channel: &mut serenity::GuildChannel) -> Result<bool, Error> {
@@ -86,11 +93,17 @@ impl VoiceChannelPort for DiscordVoiceChannels {
         Ok(())
     }
 
-    fn connected_staff(&self, channel: &serenity::GuildChannel) -> Option<serenity::Member> {
+    fn connected_staff(
+        &self,
+        channel: &serenity::GuildChannel,
+        owners: &HashSet<serenity::UserId>,
+        reload_roles: &[serenity::RoleId],
+        exclude: Option<serenity::UserId>,
+    ) -> Option<serenity::Member> {
         match channel.members(&self.ctx.cache) {
-            Ok(members) => members
-                .into_iter()
-                .find(|member| self.is_staff(channel, member)),
+            Ok(members) => members.into_iter().find(|member| {
+                Some(member.user.id) != exclude && self.is_staff(member, owners, reload_roles)
+            }),
             Err(e) => {
                 tracing::warn!(%e, channel_id = %channel.id, "failed to list channel members");
                 None

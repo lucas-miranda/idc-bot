@@ -17,7 +17,10 @@ pub async fn handle_event<'a>(
         serenity::FullEvent::VoiceStateUpdate { old, new } => {
             let voice = framework.user_data.voice.read().await.clone();
 
-            if let Err(error) = voice.handle_transition(old.as_ref(), new).await {
+            if let Err(error) = voice
+                .handle_transition(old.as_ref(), new, &framework.options().owners)
+                .await
+            {
                 error!(%error, "failed to handle voice state update");
             }
         }
