@@ -17,10 +17,22 @@ pub trait MessageSink: Send + Sync {
         user_id: serenity::UserId,
     ) -> Option<serenity::ChannelId>;
 
+    fn fetch_message(
+        &self,
+        channel_id: serenity::ChannelId,
+        message_id: serenity::MessageId,
+    ) -> impl Future<Output = Result<Option<serenity::Message>, Error>> + Send;
+
     fn send(
         &self,
         channel_id: serenity::ChannelId,
         content: &str,
         embeds: &[serenity::Embed],
+    ) -> impl Future<Output = Result<serenity::MessageId, Error>> + Send;
+
+    fn delete_message(
+        &self,
+        channel_id: serenity::ChannelId,
+        message_id: serenity::MessageId,
     ) -> impl Future<Output = Result<(), Error>> + Send;
 }

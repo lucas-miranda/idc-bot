@@ -14,6 +14,14 @@ impl DiscordMessageSink {
     }
 }
 
+fn is_not_found(error: &serenity::Error) -> bool {
+    matches!(
+        error,
+        serenity::Error::Http(http)
+            if http.status_code().map(|status| status.as_u16()) == Some(404)
+    )
+}
+
 impl MessageSink for DiscordMessageSink {
     async fn fetch_channel(
         &self,
@@ -49,15 +57,27 @@ impl MessageSink for DiscordMessageSink {
             .and_then(|state| state.channel_id)
     }
 
+    async fn fetch_message(
+        &self,
+        channel_id: serenity::ChannelId,
+        message_id: serenity::MessageId,
+    ) -> Result<Option<serenity::Message>, Error> {
+        match channel_id.message(&self.ctx, message_id).await {
+            Ok(message) => Ok(Some(message)),
+            Err(error) if is_not_found(&error) => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     async fn send(
         &self,
         channel_id: serenity::ChannelId,
         content: &str,
         embeds: &[serenity::Embed],
-    ) -> Result<(), Error> {
+    ) -> Result<serenity::MessageId, Error> {
         let embeds: Vec<serenity::CreateEmbed> = embeds.iter().cloned().map(Into::into).collect();
 
-        channel_id
+        let message = channel_id
             .send_message(
                 &self.ctx.http,
                 serenity::CreateMessage::new()
@@ -66,6 +86,18 @@ impl MessageSink for DiscordMessageSink {
             )
             .await?;
 
-        Ok(())
+        Ok(message.id)
+    }
+
+    async fn delete_message(
+        &self,
+        channel_id: serenity::ChannelId,
+        message_id: serenity::MessageId,
+    ) -> Result<(), Error> {
+        match channel_id.delete_message(&self.ctx.http, message_id).await {
+            Ok(()) => Ok(()),
+            Err(error) if is_not_found(&error) => Ok(()),
+            Err(error) => Err(error.into()),
+        }
     }
 }

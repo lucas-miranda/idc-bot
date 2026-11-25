@@ -4,6 +4,7 @@ use poise::serenity_prelude as serenity;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info};
 
+use crate::app::MirrorTracker;
 use crate::commands;
 use crate::config::{self, Config};
 use crate::discord::InMemoryCooldownStore;
@@ -38,11 +39,14 @@ pub async fn run() -> Result<(), Error> {
                 info!(path = %config_path.display(), "loaded configuration");
 
                 let cooldowns: Arc<dyn CooldownStore> = Arc::new(InMemoryCooldownStore::default());
-                let services = build_services(ctx, config, cooldowns.clone()).await?;
+                let mirror_tracker = Arc::new(MirrorTracker::default());
+                let services =
+                    build_services(ctx, config, cooldowns.clone(), mirror_tracker.clone()).await?;
 
                 Ok(AppState {
                     voice: RwLock::new(Arc::new(services.voice)),
                     mirror: RwLock::new(Arc::new(services.mirror)),
+                    mirror_tracker,
                     config_path,
                     cooldowns,
                     config_lock: Mutex::new(()),
