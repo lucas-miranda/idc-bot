@@ -85,9 +85,16 @@ impl<S: MessageSink> MessageMirror<S> {
 
         if !message_contains(message, mirror.message_contains.as_deref()) {
             debug!(
+                message_id = %message.id,
+                author_id = %message.author.id,
                 content = %message.content,
                 embed_titles = ?message.embeds.iter().filter_map(|embed| embed.title.as_deref()).collect::<Vec<_>>(),
                 embed_descriptions = ?message.embeds.iter().filter_map(|embed| embed.description.as_deref()).collect::<Vec<_>>(),
+                attachments = message.attachments.len(),
+                attachment_names = ?message.attachments.iter().map(|attachment| attachment.filename.as_str()).collect::<Vec<_>>(),
+                components = message.components.len(),
+                sticker_items = message.sticker_items.len(),
+                has_poll = message.poll.is_some(),
                 "message did not match the mirror filter"
             );
             return Ok(());
@@ -202,6 +209,36 @@ impl<S: MessageSink> MessageMirror<S> {
             return Ok(());
         }
 
+        if let Some(author) = &event.author
+            && author.id != mirror.source_bot
+        {
+            return Ok(());
+        }
+
+        // Resolve before the tracker check so source-bot updates are logged
+        // even when nothing is tracked yet.
+        let message = match new {
+            Some(message) => Some(message.clone()),
+            None => self.sink.fetch_message(event.channel_id, event.id).await?,
+        };
+
+        if let Some(message) = &message
+            && message.author.id == mirror.source_bot
+        {
+            debug!(
+                message_id = %message.id,
+                content = %message.content,
+                embed_titles = ?message.embeds.iter().filter_map(|embed| embed.title.as_deref()).collect::<Vec<_>>(),
+                embed_descriptions = ?message.embeds.iter().filter_map(|embed| embed.description.as_deref()).collect::<Vec<_>>(),
+                attachments = message.attachments.len(),
+                attachment_names = ?message.attachments.iter().map(|attachment| attachment.filename.as_str()).collect::<Vec<_>>(),
+                components = message.components.len(),
+                sticker_items = message.sticker_items.len(),
+                has_poll = message.poll.is_some(),
+                "received a source-bot message update"
+            );
+        }
+
         let Some(previous) = self.tracker.snapshot().await else {
             return Ok(());
         };
@@ -211,12 +248,8 @@ impl<S: MessageSink> MessageMirror<S> {
             return Ok(());
         }
 
-        let message = match new {
-            Some(message) => message.clone(),
-            None => match self.sink.fetch_message(event.channel_id, event.id).await? {
-                Some(message) => message,
-                None => return Ok(()),
-            },
+        let Some(message) = message else {
+            return Ok(());
         };
 
         if message.author.id != mirror.source_bot
