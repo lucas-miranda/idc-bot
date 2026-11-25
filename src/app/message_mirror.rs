@@ -83,7 +83,13 @@ impl<S: MessageSink> MessageMirror<S> {
             return Ok(());
         }
 
-        if !content_contains(&message.content, mirror.message_contains.as_deref()) {
+        if !message_contains(message, mirror.message_contains.as_deref()) {
+            debug!(
+                content = %message.content,
+                embed_titles = ?message.embeds.iter().filter_map(|embed| embed.title.as_deref()).collect::<Vec<_>>(),
+                embed_descriptions = ?message.embeds.iter().filter_map(|embed| embed.description.as_deref()).collect::<Vec<_>>(),
+                "message did not match the mirror filter"
+            );
             return Ok(());
         }
 
@@ -400,9 +406,44 @@ fn prefixed_content(author_name: &str, content: &str) -> String {
     }
 }
 
-fn content_contains(content: &str, filter: Option<&str>) -> bool {
+fn message_contains(message: &serenity::Message, filter: Option<&str>) -> bool {
+    if filter.is_none() {
+        return true;
+    }
+
+    let mut texts: Vec<&str> = vec![message.content.as_str()];
+
+    for embed in &message.embeds {
+        if let Some(title) = embed.title.as_deref() {
+            texts.push(title);
+        }
+
+        if let Some(description) = embed.description.as_deref() {
+            texts.push(description);
+        }
+
+        if let Some(footer) = embed.footer.as_ref() {
+            texts.push(&footer.text);
+        }
+
+        for field in &embed.fields {
+            texts.push(&field.name);
+            texts.push(&field.value);
+        }
+    }
+
+    text_contains(texts, filter)
+}
+
+fn text_contains<'a>(texts: impl IntoIterator<Item = &'a str>, filter: Option<&str>) -> bool {
     match filter {
-        Some(expected) => content.to_lowercase().contains(&expected.to_lowercase()),
+        Some(expected) => {
+            let needle = expected.to_lowercase();
+
+            texts
+                .into_iter()
+                .any(|text| text.to_lowercase().contains(&needle))
+        }
         None => true,
     }
 }
@@ -412,7 +453,7 @@ mod tests {
     use poise::serenity_prelude as serenity;
 
     use super::{
-        MirrorTracker, MirroredMessage, PREFIX_SOURCE_BOT, content_contains, prefixed_content,
+        MirrorTracker, MirroredMessage, PREFIX_SOURCE_BOT, prefixed_content, text_contains,
     };
 
     #[test]
@@ -432,23 +473,31 @@ mod tests {
     }
 
     #[test]
-    fn matches_content_case_insensitively() {
-        assert!(content_contains(
-            "Now started playing: Song",
+    fn matches_text_case_insensitively() {
+        assert!(text_contains(
+            ["Now started playing: Song"],
             Some("Started Playing")
         ));
     }
 
     #[test]
-    fn rejects_when_content_does_not_match() {
-        assert!(!content_contains("Paused", Some("Started playing")));
-        assert!(!content_contains("", Some("Started playing")));
+    fn matches_any_of_the_message_texts() {
+        assert!(text_contains(
+            ["", "Started playing: Song", "description"],
+            Some("started playing")
+        ));
     }
 
     #[test]
-    fn accepts_everything_without_a_content_filter() {
-        assert!(content_contains("anything", None));
-        assert!(content_contains("", None));
+    fn rejects_when_no_text_matches() {
+        assert!(!text_contains(["Paused", "Idle"], Some("Started playing")));
+        assert!(!text_contains([""], Some("Started playing")));
+    }
+
+    #[test]
+    fn accepts_everything_without_a_text_filter() {
+        assert!(text_contains(["Paused"], None));
+        assert!(text_contains(std::iter::empty::<&str>(), None));
     }
 
     #[tokio::test]
