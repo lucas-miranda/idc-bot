@@ -30,11 +30,11 @@ pub trait MessageSink: Send + Sync {
         message_id: serenity::MessageId,
     ) -> impl Future<Output = Result<Option<serenity::Message>, Error>> + Send;
 
-    /// The newest message id in a channel.
-    fn latest_message_id(
+    /// The newest message in a channel.
+    fn latest_message(
         &self,
         channel_id: serenity::ChannelId,
-    ) -> impl Future<Output = Result<Option<serenity::MessageId>, Error>> + Send;
+    ) -> impl Future<Output = Result<Option<serenity::Message>, Error>> + Send;
 
     fn send(
         &self,

@@ -14,7 +14,8 @@ const PREFIX_SOURCE_BOT: bool = true;
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct MirroredMessage {
     source_channel: serenity::ChannelId,
-    source_message: serenity::MessageId,
+    /// `None` for entries recovered after a restart.
+    source_message: Option<serenity::MessageId>,
     target_channel: serenity::ChannelId,
     target_message: serenity::MessageId,
 }
@@ -93,52 +94,71 @@ impl<S: MessageSink> MessageMirror<S> {
         let embeds = message.embeds.clone();
         let target_id = self.current_target().await;
 
-        if let Some(previous) = self.tracker.snapshot().await {
-            match self
-                .sink
-                .fetch_message(previous.source_channel, previous.source_message)
-                .await
-            {
-                Ok(None) => {
-                    if target_id == Some(previous.target_channel) {
-                        match self.update_mirrored(&previous, &content, &embeds).await {
-                            Ok(UpdateOutcome::Edited) => {
-                                self.tracker
-                                    .set(MirroredMessage {
-                                        source_channel: message.channel_id,
-                                        source_message: message.id,
-                                        target_channel: previous.target_channel,
-                                        target_message: previous.target_message,
-                                    })
-                                    .await;
-                                return Ok(());
-                            }
-                            Ok(UpdateOutcome::Resent(new_target)) => {
-                                self.tracker
-                                    .set(MirroredMessage {
-                                        source_channel: message.channel_id,
-                                        source_message: message.id,
-                                        target_channel: previous.target_channel,
-                                        target_message: new_target,
-                                    })
-                                    .await;
-                                return Ok(());
-                            }
-                            Err(error) => {
-                                warn!(%error, "failed to update the previous mirror");
-                                return Ok(());
-                            }
+        // After a restart the tracker is empty: adopt the last mirrored
+        // message in the target chat, if it is ours, instead of sending a
+        // fresh one.
+        let mut previous = self.tracker.snapshot().await;
+        if previous.is_none()
+            && let Some(target_id) = target_id
+        {
+            previous = self.recover_from_target(target_id, bot_id).await;
+        }
+
+        if let Some(previous) = previous {
+            let source_gone = match previous.source_message {
+                Some(source_message) => {
+                    match self
+                        .sink
+                        .fetch_message(previous.source_channel, source_message)
+                        .await
+                    {
+                        Ok(None) => true,
+                        Ok(Some(_)) => false,
+                        Err(error) => {
+                            warn!(%error, "failed to check the previous source message");
+                            false
                         }
                     }
+                }
+                // Recovered entries do not know their source message.
+                None => true,
+            };
 
-                    // The call moved (or ended): drop the tracker without
-                    // deleting the old copy, as requested.
-                    self.tracker.clear().await;
+            if source_gone {
+                if target_id == Some(previous.target_channel) {
+                    match self.update_mirrored(&previous, &content, &embeds).await {
+                        Ok(UpdateOutcome::Edited) => {
+                            self.tracker
+                                .set(MirroredMessage {
+                                    source_channel: message.channel_id,
+                                    source_message: Some(message.id),
+                                    target_channel: previous.target_channel,
+                                    target_message: previous.target_message,
+                                })
+                                .await;
+                            return Ok(());
+                        }
+                        Ok(UpdateOutcome::Resent(new_target)) => {
+                            self.tracker
+                                .set(MirroredMessage {
+                                    source_channel: message.channel_id,
+                                    source_message: Some(message.id),
+                                    target_channel: previous.target_channel,
+                                    target_message: new_target,
+                                })
+                                .await;
+                            return Ok(());
+                        }
+                        Err(error) => {
+                            warn!(%error, "failed to update the previous mirror");
+                            return Ok(());
+                        }
+                    }
                 }
-                Ok(Some(_)) => {}
-                Err(error) => {
-                    warn!(%error, "failed to check the previous source message");
-                }
+
+                // The call moved (or ended): drop the tracker without
+                // deleting the old copy, as requested.
+                self.tracker.clear().await;
             }
         }
 
@@ -151,7 +171,7 @@ impl<S: MessageSink> MessageMirror<S> {
                 self.tracker
                     .set(MirroredMessage {
                         source_channel: message.channel_id,
-                        source_message: message.id,
+                        source_message: Some(message.id),
                         target_channel: target_id,
                         target_message,
                     })
@@ -183,7 +203,8 @@ impl<S: MessageSink> MessageMirror<S> {
             return Ok(());
         };
 
-        if previous.source_channel != event.channel_id || previous.source_message != event.id {
+        if previous.source_channel != event.channel_id || previous.source_message != Some(event.id)
+        {
             return Ok(());
         }
 
@@ -278,6 +299,38 @@ impl<S: MessageSink> MessageMirror<S> {
         Some(target_id)
     }
 
+    /// Adopt the last message in a target chat when it was sent by this bot.
+    async fn recover_from_target(
+        &self,
+        target_id: serenity::ChannelId,
+        bot_id: serenity::UserId,
+    ) -> Option<MirroredMessage> {
+        let mirror = self.config.mirror.as_ref()?;
+
+        let message = match self.sink.latest_message(target_id).await {
+            Ok(Some(message)) => message,
+            Ok(None) => return None,
+            Err(error) => {
+                warn!(%error, "failed to look up the latest message for recovery");
+                return None;
+            }
+        };
+
+        if message.author.id != bot_id {
+            return None;
+        }
+
+        let pair = MirroredMessage {
+            source_channel: mirror.source_channel,
+            source_message: None,
+            target_channel: target_id,
+            target_message: message.id,
+        };
+
+        self.tracker.set(pair.clone()).await;
+        Some(pair)
+    }
+
     /// Edit the mirrored copy when it is the latest message, otherwise resend
     /// it at the bottom and remove the old copy.
     async fn update_mirrored(
@@ -286,8 +339,9 @@ impl<S: MessageSink> MessageMirror<S> {
         content: &str,
         embeds: &[serenity::Embed],
     ) -> Result<UpdateOutcome, Error> {
-        let is_last = match self.sink.latest_message_id(previous.target_channel).await {
-            Ok(latest) => latest == Some(previous.target_message),
+        let is_last = match self.sink.latest_message(previous.target_channel).await {
+            Ok(Some(message)) => message.id == previous.target_message,
+            Ok(None) => false,
             Err(error) => {
                 warn!(
                     %error,
@@ -423,7 +477,7 @@ mod tests {
 
         let pair = MirroredMessage {
             source_channel: serenity::ChannelId::new(1),
-            source_message: serenity::MessageId::new(2),
+            source_message: Some(serenity::MessageId::new(2)),
             target_channel: serenity::ChannelId::new(3),
             target_message: serenity::MessageId::new(4),
         };

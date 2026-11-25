@@ -73,15 +73,15 @@ impl MessageSink for DiscordMessageSink {
         }
     }
 
-    async fn latest_message_id(
+    async fn latest_message(
         &self,
         channel_id: serenity::ChannelId,
-    ) -> Result<Option<serenity::MessageId>, Error> {
+    ) -> Result<Option<serenity::Message>, Error> {
         let messages = channel_id
             .messages(&self.ctx, serenity::GetMessages::new().limit(1))
             .await?;
 
-        Ok(messages.first().map(|message| message.id))
+        Ok(messages.into_iter().next())
     }
 
     async fn send(
