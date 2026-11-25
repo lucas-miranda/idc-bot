@@ -1,7 +1,7 @@
 use poise::serenity_prelude as serenity;
 
 use crate::Error;
-use crate::ports::MessageSink;
+use crate::ports::{EditOutcome, MessageSink};
 
 /// Serenity-backed [`MessageSink`].
 pub struct DiscordMessageSink {
@@ -20,6 +20,10 @@ fn is_not_found(error: &serenity::Error) -> bool {
         serenity::Error::Http(http)
             if http.status_code().map(|status| status.as_u16()) == Some(404)
     )
+}
+
+fn create_embeds(embeds: &[serenity::Embed]) -> Vec<serenity::CreateEmbed> {
+    embeds.iter().cloned().map(Into::into).collect()
 }
 
 impl MessageSink for DiscordMessageSink {
@@ -69,24 +73,56 @@ impl MessageSink for DiscordMessageSink {
         }
     }
 
+    async fn latest_message_id(
+        &self,
+        channel_id: serenity::ChannelId,
+    ) -> Result<Option<serenity::MessageId>, Error> {
+        let messages = channel_id
+            .messages(&self.ctx, serenity::GetMessages::new().limit(1))
+            .await?;
+
+        Ok(messages.first().map(|message| message.id))
+    }
+
     async fn send(
         &self,
         channel_id: serenity::ChannelId,
         content: &str,
         embeds: &[serenity::Embed],
     ) -> Result<serenity::MessageId, Error> {
-        let embeds: Vec<serenity::CreateEmbed> = embeds.iter().cloned().map(Into::into).collect();
-
         let message = channel_id
             .send_message(
                 &self.ctx.http,
                 serenity::CreateMessage::new()
                     .content(content)
-                    .embeds(embeds),
+                    .embeds(create_embeds(embeds)),
             )
             .await?;
 
         Ok(message.id)
+    }
+
+    async fn edit_message(
+        &self,
+        channel_id: serenity::ChannelId,
+        message_id: serenity::MessageId,
+        content: &str,
+        embeds: &[serenity::Embed],
+    ) -> Result<EditOutcome, Error> {
+        match channel_id
+            .edit_message(
+                &self.ctx,
+                message_id,
+                serenity::EditMessage::new()
+                    .content(content)
+                    .embeds(create_embeds(embeds)),
+            )
+            .await
+        {
+            Ok(_) => Ok(EditOutcome::Edited),
+            Err(error) if is_not_found(&error) => Ok(EditOutcome::NotFound),
+            Err(error) => Err(error.into()),
+        }
     }
 
     async fn delete_message(

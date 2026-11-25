@@ -38,6 +38,16 @@ pub async fn handle_event<'a>(
                 error!(%error, "failed to mirror message");
             }
         }
+        serenity::FullEvent::MessageUpdate { new, event, .. } => {
+            let mirror = framework.user_data.mirror.read().await.clone();
+
+            if let Err(error) = mirror
+                .mirror_edit(event, new.as_ref(), framework.bot_id())
+                .await
+            {
+                error!(%error, "failed to mirror message edit");
+            }
+        }
         _ => {}
     }
 

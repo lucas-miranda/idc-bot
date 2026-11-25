@@ -6,7 +6,7 @@ use tracing::{debug, warn};
 use crate::config::Config;
 use crate::domain::overwrites;
 use crate::error::Error;
-use crate::ports::MessageSink;
+use crate::ports::{EditOutcome, MessageSink};
 
 /// Flip to `false` to mirror the source bot's content without a name prefix.
 const PREFIX_SOURCE_BOT: bool = true;
@@ -19,8 +19,7 @@ struct MirroredMessage {
     target_message: serenity::MessageId,
 }
 
-/// Remembers the last mirrored pair so it can be cleaned up when the source
-/// message disappears.
+/// Remembers the last mirrored pair so it can be replaced or cleaned up.
 #[derive(Default)]
 pub struct MirrorTracker {
     last: tokio::sync::Mutex<Option<MirroredMessage>>,
@@ -38,6 +37,12 @@ impl MirrorTracker {
     async fn clear(&self) {
         *self.last.lock().await = None;
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum UpdateOutcome {
+    Edited,
+    Resent(serenity::MessageId),
 }
 
 /// Copies a bot's messages into the text chat of the voice channel it is in.
@@ -77,7 +82,10 @@ impl<S: MessageSink> MessageMirror<S> {
             return Ok(());
         }
 
-        // If the previous source message is gone, remove its mirrored copy.
+        let content = mirrored_content(&message.author, &message.content);
+        let embeds = message.embeds.clone();
+        let target_id = self.current_target().await;
+
         if let Some(previous) = self.tracker.snapshot().await {
             match self
                 .sink
@@ -85,14 +93,39 @@ impl<S: MessageSink> MessageMirror<S> {
                 .await
             {
                 Ok(None) => {
-                    if let Err(error) = self
-                        .sink
-                        .delete_message(previous.target_channel, previous.target_message)
-                        .await
-                    {
-                        warn!(%error, "failed to delete the previous mirrored message");
+                    if target_id == Some(previous.target_channel) {
+                        match self.update_mirrored(&previous, &content, &embeds).await {
+                            Ok(UpdateOutcome::Edited) => {
+                                self.tracker
+                                    .set(MirroredMessage {
+                                        source_channel: message.channel_id,
+                                        source_message: message.id,
+                                        target_channel: previous.target_channel,
+                                        target_message: previous.target_message,
+                                    })
+                                    .await;
+                                return Ok(());
+                            }
+                            Ok(UpdateOutcome::Resent(new_target)) => {
+                                self.tracker
+                                    .set(MirroredMessage {
+                                        source_channel: message.channel_id,
+                                        source_message: message.id,
+                                        target_channel: previous.target_channel,
+                                        target_message: new_target,
+                                    })
+                                    .await;
+                                return Ok(());
+                            }
+                            Err(error) => {
+                                warn!(%error, "failed to update the previous mirror");
+                                return Ok(());
+                            }
+                        }
                     }
 
+                    // The call moved (or ended): drop the tracker without
+                    // deleting the old copy, as requested.
                     self.tracker.clear().await;
                 }
                 Ok(Some(_)) => {}
@@ -102,45 +135,9 @@ impl<S: MessageSink> MessageMirror<S> {
             }
         }
 
-        let Some(target_id) = self
-            .sink
-            .voice_channel_of(self.config.guild_id, mirror.source_bot)
-        else {
-            debug!(
-                bot_id = %mirror.source_bot,
-                "source bot is not in a voice channel; skipping mirror"
-            );
+        let Some(target_id) = target_id else {
             return Ok(());
         };
-
-        if self.config.call_for_channel(target_id).is_none()
-            || self.config.ignored_voice_channels.contains(&target_id)
-        {
-            return Ok(());
-        }
-
-        let Some(channel) = self
-            .sink
-            .fetch_channel(self.config.guild_id, target_id)
-            .await
-        else {
-            return Ok(());
-        };
-
-        if channel.kind != serenity::ChannelType::Voice {
-            return Ok(());
-        }
-
-        if !overwrites::allows_view(&channel.permission_overwrites, channel.guild_id) {
-            debug!(
-                channel_id = %target_id,
-                "target voice channel is not visible; skipping mirror"
-            );
-            return Ok(());
-        }
-
-        let content = mirrored_content(&message.author, &message.content);
-        let embeds = message.embeds.clone();
 
         match self.sink.send(target_id, &content, &embeds).await {
             Ok(target_message) => {
@@ -159,6 +156,177 @@ impl<S: MessageSink> MessageMirror<S> {
         }
 
         Ok(())
+    }
+
+    pub async fn mirror_edit(
+        &self,
+        event: &serenity::MessageUpdateEvent,
+        new: Option<&serenity::Message>,
+        bot_id: serenity::UserId,
+    ) -> Result<(), Error> {
+        let Some(mirror) = &self.config.mirror else {
+            return Ok(());
+        };
+
+        if event.channel_id != mirror.source_channel {
+            return Ok(());
+        }
+
+        let Some(previous) = self.tracker.snapshot().await else {
+            return Ok(());
+        };
+
+        if previous.source_channel != event.channel_id || previous.source_message != event.id {
+            return Ok(());
+        }
+
+        let message = match new {
+            Some(message) => message.clone(),
+            None => match self.sink.fetch_message(event.channel_id, event.id).await? {
+                Some(message) => message,
+                None => return Ok(()),
+            },
+        };
+
+        if message.author.id != mirror.source_bot
+            || message.author.id == bot_id
+            || !message.author.bot
+        {
+            return Ok(());
+        }
+
+        if message.content.trim().is_empty() && message.embeds.is_empty() {
+            return Ok(());
+        }
+
+        let content = mirrored_content(&message.author, &message.content);
+        let embeds = message.embeds.clone();
+
+        match self.update_mirrored(&previous, &content, &embeds).await {
+            Ok(UpdateOutcome::Edited) => {}
+            Ok(UpdateOutcome::Resent(new_target)) => {
+                self.tracker
+                    .set(MirroredMessage {
+                        source_channel: previous.source_channel,
+                        source_message: previous.source_message,
+                        target_channel: previous.target_channel,
+                        target_message: new_target,
+                    })
+                    .await;
+            }
+            Err(error) => {
+                warn!(%error, "failed to edit the mirrored message");
+            }
+        }
+
+        Ok(())
+    }
+
+    /// The source bot's current voice channel, if it is a valid mirror target.
+    async fn current_target(&self) -> Option<serenity::ChannelId> {
+        let mirror = self.config.mirror.as_ref()?;
+
+        let Some(target_id) = self
+            .sink
+            .voice_channel_of(self.config.guild_id, mirror.source_bot)
+        else {
+            debug!(
+                bot_id = %mirror.source_bot,
+                "source bot is not in a voice channel; skipping mirror"
+            );
+            return None;
+        };
+
+        if self.config.call_for_channel(target_id).is_none()
+            || self.config.ignored_voice_channels.contains(&target_id)
+        {
+            debug!(
+                channel_id = %target_id,
+                "target channel is not a managed call; skipping mirror"
+            );
+            return None;
+        }
+
+        let channel = self
+            .sink
+            .fetch_channel(self.config.guild_id, target_id)
+            .await?;
+
+        if channel.kind != serenity::ChannelType::Voice {
+            debug!(
+                channel_id = %target_id,
+                "target channel is not a voice channel; skipping mirror"
+            );
+            return None;
+        }
+
+        if !overwrites::allows_view(&channel.permission_overwrites, channel.guild_id) {
+            debug!(
+                channel_id = %target_id,
+                "target voice channel is not visible; skipping mirror"
+            );
+            return None;
+        }
+
+        Some(target_id)
+    }
+
+    /// Edit the mirrored copy when it is the latest message, otherwise resend
+    /// it at the bottom and remove the old copy.
+    async fn update_mirrored(
+        &self,
+        previous: &MirroredMessage,
+        content: &str,
+        embeds: &[serenity::Embed],
+    ) -> Result<UpdateOutcome, Error> {
+        let is_last = match self.sink.latest_message_id(previous.target_channel).await {
+            Ok(latest) => latest == Some(previous.target_message),
+            Err(error) => {
+                warn!(
+                    %error,
+                    "failed to check the latest message; resending the mirror"
+                );
+                false
+            }
+        };
+
+        if is_last {
+            return match self
+                .sink
+                .edit_message(
+                    previous.target_channel,
+                    previous.target_message,
+                    content,
+                    embeds,
+                )
+                .await?
+            {
+                EditOutcome::Edited => Ok(UpdateOutcome::Edited),
+                EditOutcome::NotFound => {
+                    let new_target = self
+                        .sink
+                        .send(previous.target_channel, content, embeds)
+                        .await?;
+
+                    Ok(UpdateOutcome::Resent(new_target))
+                }
+            };
+        }
+
+        let new_target = self
+            .sink
+            .send(previous.target_channel, content, embeds)
+            .await?;
+
+        if let Err(error) = self
+            .sink
+            .delete_message(previous.target_channel, previous.target_message)
+            .await
+        {
+            warn!(%error, "failed to delete the previous mirrored message");
+        }
+
+        Ok(UpdateOutcome::Resent(new_target))
     }
 }
 

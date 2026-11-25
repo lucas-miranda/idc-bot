@@ -7,7 +7,7 @@ mod cooldown_store;
 pub use cooldown_store::CooldownStore;
 
 mod message_sink;
-pub use message_sink::MessageSink;
+pub use message_sink::{EditOutcome, MessageSink};
 
 mod notifier;
 pub use notifier::Notifier;
