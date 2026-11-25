@@ -80,6 +80,65 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
         Ok(())
     }
 
+    /// Reconcile channel visibility after the cache is ready.
+    ///
+    /// Registered channels with a staff member become visible; registered
+    /// channels without staff become invisible and disconnect their members.
+    /// This is silent: no announcements are sent.
+    pub async fn reconcile(&self, owners: &HashSet<serenity::UserId>) -> Result<(), Error> {
+        for call in &self.config.call_kinds {
+            if self
+                .config
+                .ignored_voice_channels
+                .contains(&call.voice_channel)
+            {
+                continue;
+            }
+
+            let Some(mut channel) = self.channels.fetch_channel(call.voice_channel).await else {
+                continue;
+            };
+
+            if channel.kind != serenity::ChannelType::Voice {
+                continue;
+            }
+
+            let visible = overwrites::allows_view(&channel.permission_overwrites, channel.guild_id);
+            let has_staff = self
+                .channels
+                .connected_staff(&channel, owners, &self.config.reload_roles, None)
+                .is_some();
+
+            match visibility_action(has_staff, visible) {
+                VisibilityAction::Reveal => {
+                    debug!(channel = %channel.name, "reconciling: making channel visible");
+
+                    if let Err(error) = self.channels.reveal(&mut channel).await {
+                        warn!(
+                            %error,
+                            channel_id = %channel.id,
+                            "failed to reveal channel during reconciliation"
+                        );
+                    }
+                }
+                VisibilityAction::Conceal => {
+                    debug!(channel = %channel.name, "reconciling: disabling channel");
+
+                    if let Err(error) = self.disable_channel(&mut channel).await {
+                        warn!(
+                            %error,
+                            channel_id = %channel.id,
+                            "failed to conceal channel during reconciliation"
+                        );
+                    }
+                }
+                VisibilityAction::Nothing => {}
+            }
+        }
+
+        Ok(())
+    }
+
     /// A channel is managed only when it is registered and not ignored.
     fn is_managed_channel(&self, channel: &serenity::GuildChannel) -> bool {
         self.config.call_for_channel(channel.id).is_some()
@@ -227,6 +286,27 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
         Ok(())
     }
 
+    async fn disable_channel(&self, channel: &mut serenity::GuildChannel) -> Result<(), Error> {
+        debug!("making channel invisible");
+        self.channels.conceal(channel).await?;
+
+        debug!("disconnecting remaining members");
+
+        match self.channels.connected_members(channel) {
+            Ok(members) => {
+                for member in members {
+                    self.channels.disconnect(&member).await?;
+                }
+                debug!("remaining members disconnected");
+            }
+            Err(error) => {
+                warn!(%error, "failed to list channel members; skipping disconnect");
+            }
+        }
+
+        Ok(())
+    }
+
     async fn staff_leaving_public_voice_channel(
         &self,
         member: &serenity::Member,
@@ -246,25 +326,50 @@ impl<C: VoiceChannelPort, N: Notifier> VoiceService<C, N> {
                 );
             }
             None => {
-                debug!("making channel invisible");
-                self.channels.conceal(channel).await?;
-
-                debug!("disconnecting remaining members");
-
-                match self.channels.connected_members(channel) {
-                    Ok(members) => {
-                        for member in members {
-                            self.channels.disconnect(&member).await?;
-                        }
-                        debug!("remaining members disconnected");
-                    }
-                    Err(error) => {
-                        warn!(%error, "failed to list channel members; skipping disconnect");
-                    }
-                }
+                self.disable_channel(channel).await?;
             }
         }
 
         Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VisibilityAction {
+    Reveal,
+    Conceal,
+    Nothing,
+}
+
+fn visibility_action(has_staff: bool, visible: bool) -> VisibilityAction {
+    match (has_staff, visible) {
+        (true, false) => VisibilityAction::Reveal,
+        (false, true) => VisibilityAction::Conceal,
+        _ => VisibilityAction::Nothing,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{VisibilityAction, visibility_action};
+
+    #[test]
+    fn reveals_when_staff_is_present_and_the_channel_is_hidden() {
+        assert_eq!(visibility_action(true, false), VisibilityAction::Reveal);
+    }
+
+    #[test]
+    fn conceals_when_no_staff_is_present_and_the_channel_is_visible() {
+        assert_eq!(visibility_action(false, true), VisibilityAction::Conceal);
+    }
+
+    #[test]
+    fn leaves_visible_channels_with_staff_alone() {
+        assert_eq!(visibility_action(true, true), VisibilityAction::Nothing);
+    }
+
+    #[test]
+    fn leaves_hidden_channels_without_staff_alone() {
+        assert_eq!(visibility_action(false, false), VisibilityAction::Nothing);
     }
 }

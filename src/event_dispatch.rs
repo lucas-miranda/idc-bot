@@ -14,6 +14,13 @@ pub async fn handle_event<'a>(
         serenity::FullEvent::Ready { data_about_bot, .. } => {
             info!(user = %data_about_bot.user.name, "logged in");
         }
+        serenity::FullEvent::CacheReady { .. } => {
+            let voice = framework.user_data.voice.read().await.clone();
+
+            if let Err(error) = voice.reconcile(&framework.options().owners).await {
+                error!(%error, "failed to reconcile channel visibility");
+            }
+        }
         serenity::FullEvent::VoiceStateUpdate { old, new } => {
             let voice = framework.user_data.voice.read().await.clone();
 
