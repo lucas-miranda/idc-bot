@@ -5,31 +5,33 @@ use tokio::sync::{Mutex, RwLock};
 use toml_edit::DocumentMut;
 use tracing::info;
 
-use crate::app::VoiceService;
+use crate::app::{MessageMirror, VoiceService};
 use crate::config::{self, Config};
-use crate::discord::{DiscordNotifier, DiscordVoiceChannels};
+use crate::discord::{DiscordMessageSink, DiscordNotifier, DiscordVoiceChannels};
 use crate::error::{ConfigError, Error};
 use crate::ports::CooldownStore;
 
 /// Composition root shared with the poise framework.
 pub struct AppState {
     pub voice: RwLock<Arc<VoiceService<DiscordVoiceChannels, DiscordNotifier>>>,
+    pub mirror: RwLock<Arc<MessageMirror<DiscordMessageSink>>>,
     pub config_path: PathBuf,
     pub cooldowns: Arc<dyn CooldownStore>,
     pub config_lock: Mutex<()>,
 }
 
 impl AppState {
-    /// Re-read the TOML file, rebuild the service and swap it in atomically.
+    /// Re-read the TOML file, rebuild the services and swap them in atomically.
     ///
-    /// If anything fails, the previous service keeps running.
+    /// If anything fails, the previous services keep running.
     pub async fn reload(&self, ctx: &serenity::Context) -> Result<(), Error> {
         let _guard = self.config_lock.lock().await;
 
         let config = Arc::new(Config::load(&self.config_path).await?);
-        let voice = build_voice_service(ctx, config, self.cooldowns.clone()).await?;
+        let services = build_services(ctx, config, self.cooldowns.clone()).await?;
 
-        *self.voice.write().await = Arc::new(voice);
+        *self.voice.write().await = Arc::new(services.voice);
+        *self.mirror.write().await = Arc::new(services.mirror);
 
         info!(path = %self.config_path.display(), "configuration reloaded");
         Ok(())
@@ -78,27 +80,39 @@ impl AppState {
     /// Validate, rebuild and persist a new config text, then swap it in.
     async fn apply_config_text(&self, ctx: &serenity::Context, text: String) -> Result<(), Error> {
         let config = Arc::new(Config::from_toml_str(&text)?);
-        let voice = build_voice_service(ctx, config, self.cooldowns.clone()).await?;
+        let services = build_services(ctx, config, self.cooldowns.clone()).await?;
 
         write_config_text(&self.config_path, &text).await?;
 
-        *self.voice.write().await = Arc::new(voice);
+        *self.voice.write().await = Arc::new(services.voice);
+        *self.mirror.write().await = Arc::new(services.mirror);
 
         info!(path = %self.config_path.display(), "configuration updated");
         Ok(())
     }
 }
 
-/// Build the voice service from a validated configuration.
-pub async fn build_voice_service(
+/// Services built from a single configuration snapshot.
+pub struct Services {
+    pub voice: VoiceService<DiscordVoiceChannels, DiscordNotifier>,
+    pub mirror: MessageMirror<DiscordMessageSink>,
+}
+
+/// Build both services from a validated configuration.
+pub async fn build_services(
     ctx: &serenity::Context,
     config: Arc<Config>,
     cooldowns: Arc<dyn CooldownStore>,
-) -> Result<VoiceService<DiscordVoiceChannels, DiscordNotifier>, Error> {
+) -> Result<Services, Error> {
     let channels = DiscordVoiceChannels::new(ctx.clone());
     let notifier = DiscordNotifier::new(ctx.clone(), &config, cooldowns).await?;
+    let sink = DiscordMessageSink::new(ctx.clone());
+    let mirror = MessageMirror::new(config.clone(), sink);
 
-    Ok(VoiceService::new(config, channels, notifier))
+    Ok(Services {
+        voice: VoiceService::new(config, channels, notifier),
+        mirror,
+    })
 }
 
 async fn read_config_text(path: &std::path::Path) -> Result<String, ConfigError> {

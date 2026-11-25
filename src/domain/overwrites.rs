@@ -115,11 +115,24 @@ pub fn allows_speak(
         .unwrap_or(true)
 }
 
+/// Whether `@everyone` can see this channel.
+///
+/// A missing overwrite is treated as "allowed", matching Discord's behaviour.
+pub fn allows_view(current: &[serenity::PermissionOverwrite], guild_id: serenity::GuildId) -> bool {
+    let kind = everyone_overwrite_type(guild_id);
+
+    current
+        .iter()
+        .find(|overwrite| overwrite.kind == kind)
+        .map(|overwrite| !overwrite.deny.view_channel())
+        .unwrap_or(true)
+}
+
 #[cfg(test)]
 mod tests {
     use poise::serenity_prelude as serenity;
 
-    use super::{allows_speak, conceal, reveal};
+    use super::{allows_speak, allows_view, conceal, reveal};
 
     fn guild() -> serenity::GuildId {
         serenity::GuildId::new(1)
@@ -199,6 +212,22 @@ mod tests {
     #[test]
     fn everyone_can_speak_by_default() {
         assert!(allows_speak(&[], guild()));
+    }
+
+    #[test]
+    fn everyone_can_view_by_default() {
+        assert!(allows_view(&[], guild()));
+    }
+
+    #[test]
+    fn everyone_cannot_view_when_denied() {
+        let hidden = serenity::PermissionOverwrite {
+            allow: serenity::Permissions::empty(),
+            deny: serenity::Permissions::VIEW_CHANNEL,
+            kind: everyone(),
+        };
+
+        assert!(!allows_view(&[hidden], guild()));
     }
 
     #[test]

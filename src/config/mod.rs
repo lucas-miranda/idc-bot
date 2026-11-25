@@ -12,6 +12,9 @@ use crate::error::ConfigError;
 mod calls;
 pub use calls::CallConfig;
 
+mod mirror;
+pub use mirror::MirrorConfig;
+
 pub mod edit;
 pub use edit::DEFAULT_CALL_MESSAGE;
 
@@ -37,6 +40,7 @@ pub struct Config {
     pub reload_roles: Vec<serenity::RoleId>,
     pub call_kinds: Vec<CallConfig>,
     pub cooldown: Duration,
+    pub mirror: Option<MirrorConfig>,
 }
 
 impl Config {
@@ -77,6 +81,14 @@ struct RawConfig {
     cooldown_secs: u64,
     #[serde(default)]
     call_kinds: Vec<RawCall>,
+    #[serde(default)]
+    mirror: Option<RawMirror>,
+}
+
+#[derive(Deserialize)]
+struct RawMirror {
+    source_channel: u64,
+    source_bot: u64,
 }
 
 #[derive(Deserialize)]
@@ -140,6 +152,19 @@ impl TryFrom<RawConfig> for Config {
             });
         }
 
+        let mirror = match raw.mirror {
+            Some(raw_mirror) => {
+                ensure_non_zero(raw_mirror.source_channel, "mirror.source_channel")?;
+                ensure_non_zero(raw_mirror.source_bot, "mirror.source_bot")?;
+
+                Some(MirrorConfig {
+                    source_channel: serenity::ChannelId::new(raw_mirror.source_channel),
+                    source_bot: serenity::UserId::new(raw_mirror.source_bot),
+                })
+            }
+            None => None,
+        };
+
         Ok(Config {
             guild_id: serenity::GuildId::new(guild_id),
             broadcast_channel_id: serenity::ChannelId::new(raw.broadcast_channel_id),
@@ -147,6 +172,7 @@ impl TryFrom<RawConfig> for Config {
             reload_roles,
             call_kinds,
             cooldown: Duration::from_secs(raw.cooldown_secs),
+            mirror,
         })
     }
 }
@@ -191,6 +217,7 @@ message = "hi"
         assert_eq!(call.voice_channel.get(), 3);
         assert_eq!(call.role_id.get(), 4);
         assert_eq!(call.message, "hi");
+        assert!(config.mirror.is_none());
     }
 
     #[test]
@@ -261,6 +288,41 @@ cooldown_secs = 3600
 voice_channel = 3
 role_id = 42
 message = "hi"
+"#;
+
+        let error = Config::from_toml_str(toml).expect_err("should fail");
+        assert!(matches!(error, ConfigError::Invalid(_)));
+    }
+
+    #[test]
+    fn parses_a_mirror_config() {
+        let toml = r#"
+guild_id = 1
+broadcast_channel_id = 2
+cooldown_secs = 3600
+
+[mirror]
+source_channel = 5
+source_bot = 6
+"#;
+
+        let config = Config::from_toml_str(toml).expect("config should parse");
+        let mirror = config.mirror.expect("mirror should be present");
+
+        assert_eq!(mirror.source_channel.get(), 5);
+        assert_eq!(mirror.source_bot.get(), 6);
+    }
+
+    #[test]
+    fn rejects_zero_mirror_ids() {
+        let toml = r#"
+guild_id = 1
+broadcast_channel_id = 2
+cooldown_secs = 3600
+
+[mirror]
+source_channel = 0
+source_bot = 6
 "#;
 
         let error = Config::from_toml_str(toml).expect_err("should fail");

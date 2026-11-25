@@ -16,6 +16,13 @@ ignored_voice_channels = []
 # Bot owners and members with MANAGE_GUILD can always run them.
 reload_roles = []
 
+# Optional: mirror another bot's messages into the text chat of the voice
+# channel it is currently connected to. The target channel must be registered
+# in call_kinds and currently visible.
+[mirror]
+source_channel = 1073430430042296421
+source_bot = 801167849291776020
+
 [[call_kinds]]
 voice_channel = 0
 role_id = 0

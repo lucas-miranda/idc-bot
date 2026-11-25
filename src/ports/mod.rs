@@ -6,6 +6,9 @@
 mod cooldown_store;
 pub use cooldown_store::CooldownStore;
 
+mod message_sink;
+pub use message_sink::MessageSink;
+
 mod notifier;
 pub use notifier::Notifier;
 

@@ -24,6 +24,13 @@ pub async fn handle_event<'a>(
                 error!(%error, "failed to handle voice state update");
             }
         }
+        serenity::FullEvent::Message { new_message } => {
+            let mirror = framework.user_data.mirror.read().await.clone();
+
+            if let Err(error) = mirror.mirror(new_message, framework.bot_id()).await {
+                error!(%error, "failed to mirror message");
+            }
+        }
         _ => {}
     }
 

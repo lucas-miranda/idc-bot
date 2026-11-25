@@ -10,7 +10,7 @@ use crate::discord::InMemoryCooldownStore;
 use crate::error::{Error, StartupError};
 use crate::event_dispatch;
 use crate::ports::CooldownStore;
-use crate::state::{AppState, build_voice_service};
+use crate::state::{AppState, build_services};
 use crate::telemetry;
 
 pub async fn run() -> Result<(), Error> {
@@ -18,7 +18,8 @@ pub async fn run() -> Result<(), Error> {
 
     let intents = serenity::GatewayIntents::non_privileged()
         | serenity::GatewayIntents::GUILDS
-        | serenity::GatewayIntents::GUILD_VOICE_STATES;
+        | serenity::GatewayIntents::GUILD_VOICE_STATES
+        | serenity::GatewayIntents::MESSAGE_CONTENT;
 
     let framework: poise::Framework<AppState, Error> = poise::Framework::builder()
         .options(poise::FrameworkOptions {
@@ -37,10 +38,11 @@ pub async fn run() -> Result<(), Error> {
                 info!(path = %config_path.display(), "loaded configuration");
 
                 let cooldowns: Arc<dyn CooldownStore> = Arc::new(InMemoryCooldownStore::default());
-                let voice = build_voice_service(ctx, config, cooldowns.clone()).await?;
+                let services = build_services(ctx, config, cooldowns.clone()).await?;
 
                 Ok(AppState {
-                    voice: RwLock::new(Arc::new(voice)),
+                    voice: RwLock::new(Arc::new(services.voice)),
+                    mirror: RwLock::new(Arc::new(services.mirror)),
                     config_path,
                     cooldowns,
                     config_lock: Mutex::new(()),
