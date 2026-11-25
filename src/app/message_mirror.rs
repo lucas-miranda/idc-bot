@@ -480,6 +480,10 @@ fn message_contains(message: &serenity::Message, filter: Option<&str>) -> bool {
     let mut texts: Vec<&str> = vec![message.content.as_str()];
 
     for embed in &message.embeds {
+        if let Some(author) = embed.author.as_ref() {
+            texts.push(&author.name);
+        }
+
         if let Some(title) = embed.title.as_deref() {
             texts.push(title);
         }
