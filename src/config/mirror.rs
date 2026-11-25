@@ -7,7 +7,7 @@ pub struct MirrorConfig {
     pub source_channel: serenity::ChannelId,
     /// Only messages from this bot are mirrored.
     pub source_bot: serenity::UserId,
-    /// When set, only messages with a matching embed title (case-insensitive)
-    /// are mirrored.
-    pub embed_title: Option<String>,
+    /// When set, only messages whose content contains this text
+    /// (case-insensitive) are mirrored.
+    pub message_contains: Option<String>,
 }

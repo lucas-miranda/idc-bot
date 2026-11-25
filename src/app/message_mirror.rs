@@ -83,10 +83,7 @@ impl<S: MessageSink> MessageMirror<S> {
             return Ok(());
         }
 
-        if !any_title_matches(
-            message.embeds.iter().map(|embed| embed.title.as_deref()),
-            mirror.embed_title.as_deref(),
-        ) {
+        if !content_contains(&message.content, mirror.message_contains.as_deref()) {
             return Ok(());
         }
 
@@ -403,14 +400,9 @@ fn prefixed_content(author_name: &str, content: &str) -> String {
     }
 }
 
-fn any_title_matches<'a>(
-    titles: impl IntoIterator<Item = Option<&'a str>>,
-    filter: Option<&str>,
-) -> bool {
+fn content_contains(content: &str, filter: Option<&str>) -> bool {
     match filter {
-        Some(expected) => titles
-            .into_iter()
-            .any(|title| title.is_some_and(|title| title.eq_ignore_ascii_case(expected))),
+        Some(expected) => content.to_lowercase().contains(&expected.to_lowercase()),
         None => true,
     }
 }
@@ -420,7 +412,7 @@ mod tests {
     use poise::serenity_prelude as serenity;
 
     use super::{
-        MirrorTracker, MirroredMessage, PREFIX_SOURCE_BOT, any_title_matches, prefixed_content,
+        MirrorTracker, MirroredMessage, PREFIX_SOURCE_BOT, content_contains, prefixed_content,
     };
 
     #[test]
@@ -440,34 +432,23 @@ mod tests {
     }
 
     #[test]
-    fn accepts_a_matching_embed_title_case_insensitively() {
-        assert!(any_title_matches(
-            [Some("started playing")],
+    fn matches_content_case_insensitively() {
+        assert!(content_contains(
+            "Now started playing: Song",
             Some("Started Playing")
         ));
-        assert!(any_title_matches(
-            [Some("Paused"), Some("Started playing")],
-            Some("Started playing")
-        ));
     }
 
     #[test]
-    fn rejects_when_no_embed_title_matches() {
-        assert!(!any_title_matches(
-            [Some("Paused")],
-            Some("Started playing")
-        ));
-        assert!(!any_title_matches([None], Some("Started playing")));
-        assert!(!any_title_matches(
-            std::iter::empty::<Option<&str>>(),
-            Some("Started playing")
-        ));
+    fn rejects_when_content_does_not_match() {
+        assert!(!content_contains("Paused", Some("Started playing")));
+        assert!(!content_contains("", Some("Started playing")));
     }
 
     #[test]
-    fn accepts_everything_without_a_title_filter() {
-        assert!(any_title_matches([Some("Paused")], None));
-        assert!(any_title_matches(std::iter::empty::<Option<&str>>(), None));
+    fn accepts_everything_without_a_content_filter() {
+        assert!(content_contains("anything", None));
+        assert!(content_contains("", None));
     }
 
     #[tokio::test]

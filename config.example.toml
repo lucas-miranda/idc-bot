@@ -22,9 +22,9 @@ reload_roles = []
 [mirror]
 source_channel = 1073430430042296421
 source_bot = 801167849291776020
-# Optional, case-insensitive; only messages with a matching embed title are
-# mirrored.
-embed_title = "Started playing"
+# Optional, case-insensitive substring; only messages whose content contains
+# this text are mirrored.
+message_contains = "Started playing"
 
 [[call_kinds]]
 voice_channel = 0

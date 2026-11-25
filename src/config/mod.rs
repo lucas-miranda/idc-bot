@@ -89,8 +89,8 @@ struct RawConfig {
 struct RawMirror {
     source_channel: u64,
     source_bot: u64,
-    #[serde(default)]
-    embed_title: Option<String>,
+    #[serde(default, alias = "embed_title")]
+    message_contains: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -159,17 +159,17 @@ impl TryFrom<RawConfig> for Config {
                 ensure_non_zero(raw_mirror.source_channel, "mirror.source_channel")?;
                 ensure_non_zero(raw_mirror.source_bot, "mirror.source_bot")?;
 
-                let embed_title = match raw_mirror.embed_title {
-                    Some(title) => {
-                        let title = title.trim().to_owned();
+                let message_contains = match raw_mirror.message_contains {
+                    Some(text) => {
+                        let text = text.trim().to_owned();
 
-                        if title.is_empty() {
+                        if text.is_empty() {
                             return Err(ConfigError::Invalid(
-                                "`mirror.embed_title` must not be empty".to_owned(),
+                                "`mirror.message_contains` must not be empty".to_owned(),
                             ));
                         }
 
-                        Some(title)
+                        Some(text)
                     }
                     None => None,
                 };
@@ -177,7 +177,7 @@ impl TryFrom<RawConfig> for Config {
                 Some(MirrorConfig {
                     source_channel: serenity::ChannelId::new(raw_mirror.source_channel),
                     source_bot: serenity::UserId::new(raw_mirror.source_bot),
-                    embed_title,
+                    message_contains,
                 })
             }
             None => None,
@@ -329,11 +329,11 @@ source_bot = 6
 
         assert_eq!(mirror.source_channel.get(), 5);
         assert_eq!(mirror.source_bot.get(), 6);
-        assert!(mirror.embed_title.is_none());
+        assert!(mirror.message_contains.is_none());
     }
 
     #[test]
-    fn parses_a_mirror_embed_title_filter() {
+    fn parses_a_mirror_message_contains_filter() {
         let toml = r#"
 guild_id = 1
 broadcast_channel_id = 2
@@ -342,17 +342,17 @@ cooldown_secs = 3600
 [mirror]
 source_channel = 5
 source_bot = 6
-embed_title = "  Started playing  "
+message_contains = "  Started playing  "
 "#;
 
         let config = Config::from_toml_str(toml).expect("config should parse");
         let mirror = config.mirror.expect("mirror should be present");
 
-        assert_eq!(mirror.embed_title.as_deref(), Some("Started playing"));
+        assert_eq!(mirror.message_contains.as_deref(), Some("Started playing"));
     }
 
     #[test]
-    fn rejects_an_empty_mirror_embed_title() {
+    fn accepts_the_legacy_embed_title_key() {
         let toml = r#"
 guild_id = 1
 broadcast_channel_id = 2
@@ -361,7 +361,26 @@ cooldown_secs = 3600
 [mirror]
 source_channel = 5
 source_bot = 6
-embed_title = "   "
+embed_title = "Started playing"
+"#;
+
+        let config = Config::from_toml_str(toml).expect("config should parse");
+        let mirror = config.mirror.expect("mirror should be present");
+
+        assert_eq!(mirror.message_contains.as_deref(), Some("Started playing"));
+    }
+
+    #[test]
+    fn rejects_an_empty_mirror_message_contains() {
+        let toml = r#"
+guild_id = 1
+broadcast_channel_id = 2
+cooldown_secs = 3600
+
+[mirror]
+source_channel = 5
+source_bot = 6
+message_contains = "   "
 "#;
 
         let error = Config::from_toml_str(toml).expect_err("should fail");
