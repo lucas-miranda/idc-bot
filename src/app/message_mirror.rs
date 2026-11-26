@@ -421,7 +421,7 @@ impl<S: MessageSink> MessageMirror<S> {
         };
 
         if is_last {
-            return match self
+            match self
                 .sink
                 .edit_message(
                     previous.target_channel,
@@ -429,18 +429,14 @@ impl<S: MessageSink> MessageMirror<S> {
                     content,
                     embeds,
                 )
-                .await?
+                .await
             {
-                EditOutcome::Edited => Ok(UpdateOutcome::Edited),
-                EditOutcome::NotFound => {
-                    let new_target = self
-                        .sink
-                        .send(previous.target_channel, content, embeds)
-                        .await?;
-
-                    Ok(UpdateOutcome::Resent(new_target))
+                Ok(EditOutcome::Edited) => return Ok(UpdateOutcome::Edited),
+                Ok(EditOutcome::NotFound) => {}
+                Err(error) => {
+                    warn!(%error, "failed to edit the mirrored message; resending it");
                 }
-            };
+            }
         }
 
         let new_target = self
